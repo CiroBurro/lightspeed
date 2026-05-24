@@ -225,3 +225,305 @@ impl Config {
         Ok(())
     }
 }
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Default value tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_config_default() {
+        let config = Config::default();
+        assert_eq!(config.general.log_level, "info");
+        assert!(!config.general.telemetry);
+        assert!(config.general.interface.is_none());
+        assert_eq!(config.tunnel.keepalive_ms, 5000);
+        assert_eq!(config.tunnel.timeout_ms, 10000);
+        assert_eq!(config.tunnel.mtu, 1400);
+        assert!(config.proxy.servers.is_empty());
+        assert_eq!(config.proxy.quic_port, 4433);
+        assert_eq!(config.proxy.data_port, 4434);
+        assert_eq!(config.route.strategy, "nearest");
+        assert!(!config.route.multipath);
+        assert_eq!(config.route.health_check_ms, 10000);
+        assert_eq!(config.route.max_failover, 3);
+        assert!(config.ml.model_path.is_none());
+        assert!(!config.ml.online_learning);
+        assert_eq!(config.ml.min_samples, 50);
+    }
+
+    #[test]
+    fn test_sub_config_defaults() {
+        let general = GeneralConfig::default();
+        assert_eq!(general.log_level, "info");
+        assert!(!general.telemetry);
+        assert!(general.interface.is_none());
+
+        let tunnel = TunnelConfig::default();
+        assert_eq!(tunnel.keepalive_ms, 5000);
+        assert_eq!(tunnel.timeout_ms, 10000);
+        assert_eq!(tunnel.mtu, 1400);
+
+        let proxy = ProxyConfig::default();
+        assert!(proxy.servers.is_empty());
+        assert_eq!(proxy.quic_port, 4433);
+        assert_eq!(proxy.data_port, 4434);
+
+        let route = RouteConfig::default();
+        assert_eq!(route.strategy, "nearest");
+        assert!(!route.multipath);
+        assert_eq!(route.health_check_ms, 10000);
+        assert_eq!(route.max_failover, 3);
+
+        let ml = MlConfig::default();
+        assert!(ml.model_path.is_none());
+        assert!(!ml.online_learning);
+        assert_eq!(ml.min_samples, 50);
+    }
+
+    // ── TOML round-trip tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_empty_config_toml_roundtrip() {
+        let toml_str = "";
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.general.log_level, "info");
+        assert_eq!(config.tunnel.keepalive_ms, 5000);
+
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.general.log_level, "info");
+    }
+
+    #[test]
+    fn test_partial_config_toml() {
+        let toml_str = r#"
+[general]
+log_level = "debug"
+interface = "eth0"
+
+[tunnel]
+keepalive_ms = 10000
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.general.log_level, "debug");
+        assert_eq!(config.general.interface.as_deref(), Some("eth0"));
+        assert!(!config.general.telemetry); // default preserved
+        assert_eq!(config.tunnel.keepalive_ms, 10000);
+        assert_eq!(config.tunnel.timeout_ms, 10000); // default preserved
+        assert_eq!(config.route.strategy, "nearest"); // default preserved
+    }
+
+    #[test]
+    fn test_full_config_toml_roundtrip() {
+        let toml_str = r#"
+[general]
+log_level = "trace"
+telemetry = true
+interface = "Ethernet"
+
+[tunnel]
+keepalive_ms = 2000
+timeout_ms = 5000
+mtu = 1200
+
+[proxy]
+servers = ["10.0.0.1:4434", "10.0.0.2:4434"]
+quic_port = 8443
+data_port = 8444
+
+[route]
+strategy = "ml"
+multipath = true
+health_check_ms = 5000
+max_failover = 5
+
+[ml]
+model_path = "/path/to/model.bin"
+online_learning = true
+min_samples = 100
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(config.general.log_level, "trace");
+        assert!(config.general.telemetry);
+        assert_eq!(config.general.interface.as_deref(), Some("Ethernet"));
+        assert_eq!(config.tunnel.keepalive_ms, 2000);
+        assert_eq!(config.tunnel.timeout_ms, 5000);
+        assert_eq!(config.tunnel.mtu, 1200);
+        assert_eq!(config.proxy.servers, vec!["10.0.0.1:4434", "10.0.0.2:4434"]);
+        assert_eq!(config.proxy.quic_port, 8443);
+        assert_eq!(config.proxy.data_port, 8444);
+        assert_eq!(config.route.strategy, "ml");
+        assert!(config.route.multipath);
+        assert_eq!(config.route.health_check_ms, 5000);
+        assert_eq!(config.route.max_failover, 5);
+        assert_eq!(config.ml.model_path.as_deref(), Some("/path/to/model.bin"));
+        assert!(config.ml.online_learning);
+        assert_eq!(config.ml.min_samples, 100);
+
+        // Round-trip
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.general.log_level, "trace");
+        assert_eq!(deserialized.route.strategy, "ml");
+        assert_eq!(deserialized.ml.min_samples, 100);
+    }
+
+    #[test]
+    fn test_serialize_preserves_values() {
+        let mut config = Config::default();
+        config.tunnel.keepalive_ms = 3000;
+        config.route.strategy = "multipath".into();
+
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        assert!(serialized.contains("keepalive_ms = 3000"));
+        assert!(serialized.contains("strategy = \"multipath\""));
+
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.tunnel.keepalive_ms, 3000);
+        assert_eq!(deserialized.route.strategy, "multipath");
+    }
+
+    // ── Invalid TOML tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_invalid_toml_syntax() {
+        let result: Result<Config, _> = toml::from_str("this is not valid toml == ---");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unknown_field_graceful() {
+        // TOML with unknown fields should work (serde ignores by default)
+        let toml_str = r#"
+[general]
+log_level = "info"
+unknown_field = "should_be_ignored"
+
+[unknown_section]
+foo = "bar"
+"#;
+        let result: Result<Config, _> = toml::from_str(toml_str);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_wrong_type_for_field() {
+        let toml_str = r#"
+[tunnel]
+keepalive_ms = "not_a_number"
+"#;
+        let result: Result<Config, _> = toml::from_str(toml_str);
+        assert!(result.is_err());
+    }
+
+    // ── File-based load/save tests ─────────────────────────────────────
+
+    #[test]
+    fn test_load_nonexistent_file() {
+        let result = Config::load("/nonexistent/path/config.toml");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_save_and_load_roundtrip() {
+        let mut config = Config::default();
+        config.general.log_level = "debug".into();
+        config.tunnel.keepalive_ms = 7500;
+        config.proxy.servers = vec!["10.0.0.1:4434".into()];
+        config.route.strategy = "ml".into();
+        config.ml.online_learning = true;
+
+        let tmp_dir = std::env::temp_dir();
+        let tmp_file = tmp_dir.join("lightspeed_test_config.toml");
+        let path_str = tmp_file.to_str().unwrap();
+
+        // Save
+        config.save(path_str).unwrap();
+
+        // Load
+        let loaded = Config::load(path_str).unwrap();
+
+        assert_eq!(loaded.general.log_level, "debug");
+        assert_eq!(loaded.tunnel.keepalive_ms, 7500);
+        assert_eq!(loaded.proxy.servers, vec!["10.0.0.1:4434"]);
+        assert_eq!(loaded.route.strategy, "ml");
+        assert!(loaded.ml.online_learning);
+
+        // Clean up
+        let _ = std::fs::remove_file(&tmp_file);
+    }
+
+    #[test]
+    fn test_route_strategy_values() {
+        for strategy in &["nearest", "ml", "multipath"] {
+            let toml_str = format!(
+                "[route]\nstrategy = \"{}\"\n",
+                strategy
+            );
+            let config: Config = toml::from_str(&toml_str).unwrap();
+            assert_eq!(config.route.strategy, *strategy);
+        }
+    }
+
+    #[test]
+    fn test_log_level_values() {
+        for level in &["trace", "debug", "info", "warn", "error"] {
+            let toml_str = format!(
+                "[general]\nlog_level = \"{}\"\n",
+                level
+            );
+            let config: Config = toml::from_str(&toml_str).unwrap();
+            assert_eq!(config.general.log_level, *level);
+        }
+    }
+
+    #[test]
+    fn test_proxy_servers_multiple() {
+        let toml_str = r#"
+[proxy]
+servers = [
+    "proxy1.example.com:4434",
+    "proxy2.example.com:4434",
+    "proxy3.example.com:4434",
+]
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.proxy.servers.len(), 3);
+        assert_eq!(config.proxy.servers[0], "proxy1.example.com:4434");
+        assert_eq!(config.proxy.servers[2], "proxy3.example.com:4434");
+    }
+
+    #[test]
+    fn test_toml_roundtrip_preserves_whitespace_semantics() {
+        let original = Config::default();
+        let serialized = toml::to_string_pretty(&original).unwrap();
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+
+        // All fields should survive the round-trip
+        assert_eq!(
+            deserialized.general.log_level,
+            original.general.log_level
+        );
+        assert_eq!(
+            deserialized.tunnel.keepalive_ms,
+            original.tunnel.keepalive_ms
+        );
+        assert_eq!(
+            deserialized.proxy.quic_port,
+            original.proxy.quic_port
+        );
+        assert_eq!(
+            deserialized.route.strategy,
+            original.route.strategy
+        );
+        assert_eq!(
+            deserialized.ml.min_samples,
+            original.ml.min_samples
+        );
+    }
+}

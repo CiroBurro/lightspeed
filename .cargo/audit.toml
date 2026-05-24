@@ -8,10 +8,6 @@ ignore = [
     # No user-controlled protobuf parsing in our attack surface.
     "RUSTSEC-2024-0437",
 
-    # quinn-proto 0.11.13 DoS — upgrade to quinn >=0.11.14 is planned.
-    "RUSTSEC-2026-0037",
-
-    # rustls-webpki 0.103.9 CRL faulty matching — no CRL distribution
     # points used in our mTLS configuration.
     "RUSTSEC-2026-0049",
 

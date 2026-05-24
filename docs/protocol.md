@@ -10,7 +10,7 @@ The LightSpeed Tunnel Protocol is a lightweight UDP encapsulation protocol desig
 
 - **Unencrypted** — game traffic remains inspectable (anti-cheat friendly)
 - **IP-preserving** — original source/destination IPs carried in header
-- **Low overhead** — 20 bytes added per packet (v1), 26 bytes with FEC (v2)
+- **Low overhead** — 20 bytes added per packet (v1), 24 bytes with FEC (v2)
 - **Sequence-numbered** — supports dedup for multipath routing
 - **FEC-capable** — optional Forward Error Correction for packet loss recovery (v2)
 
@@ -21,7 +21,7 @@ The LightSpeed Tunnel Protocol is a lightweight UDP encapsulation protocol desig
 | Version | Header Size | Features | Status |
 |---------|-------------|----------|--------|
 | **v1** | 20 bytes | Plain tunneling, keepalive, handshake, FIN | ✅ Production |
-| **v2** | 20 + 6 = 26 bytes | v1 + FEC header extension | ✅ Production |
+| **v2** | 20 + 4 = 24 bytes | v1 + FEC header extension | ✅ Production |
 
 The version field (4 bits) in byte 0 determines which header format is used.
 
@@ -33,7 +33,7 @@ The version field (4 bits) in byte 0 determines which header format is used.
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|  Ver  | Flags |   Reserved    |         Sequence Number       |
+|  Ver  | Flags | Session Token |         Sequence Number       |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                      Timestamp (μs)                           |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -51,7 +51,7 @@ The version field (4 bits) in byte 0 determines which header format is used.
 |-------|------|-------|-------------|
 | **Version** | 4 | 0[7:4] | Protocol version (`1` = plain, `2` = FEC) |
 | **Flags** | 4 | 0[3:0] | Packet type flags (see below) |
-| **Reserved** | 8 | 1 | Session token byte (used for auth) |
+| **Session Token** | 8 | 1 | Session token byte (used for auth) |
 | **Sequence** | 16 | 2-3 | Monotonically increasing packet sequence number |
 | **Timestamp** | 32 | 4-7 | Microsecond timestamp for latency measurement |
 | **Orig Src IP** | 32 | 8-11 | Original source IPv4 address |
@@ -74,9 +74,9 @@ Multiple flags can be set simultaneously.
 
 ---
 
-## Header Format — v2 FEC Extension (6 additional bytes)
+## Header Format — v2 FEC Extension (4 additional bytes)
 
-When `Version = 2`, the v1 header is followed by a 6-byte FEC extension:
+When `Version = 2`, the v1 header is followed by a 4-byte FEC extension:
 
 ```
  0                   1                   2                   3
@@ -86,8 +86,7 @@ When `Version = 2`, the v1 header is followed by a 6-byte FEC extension:
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |         FEC Group ID          |  Packet Index |  Group Size   |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|  FEC Flags    |   Reserved    |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
 ```
 
 ### FEC Extension Fields
@@ -97,10 +96,9 @@ When `Version = 2`, the v1 header is followed by a 6-byte FEC extension:
 | **FEC Group ID** | 16 | 20-21 | Identifies which FEC group this packet belongs to |
 | **Packet Index** | 8 | 22 | Index within the group (0..K-1 = data, K = parity) |
 | **Group Size** | 8 | 23 | Total data packets in group (K) |
-| **FEC Flags** | 8 | 24 | `0x01` = parity packet, `0x00` = data packet |
-| **Reserved** | 8 | 25 | Must be `0x00` |
 
-**Total v2 header: 26 bytes.** Payload follows immediately after.
+
+**Total v2 header: 24 bytes.** Payload follows immediately after.
 
 ### FEC Algorithm — XOR Parity
 
@@ -235,7 +233,7 @@ Safe payload target:   1400 bytes
 Typical Internet MTU:  1500 bytes
 IP header:               20 bytes
 UDP header:               8 bytes
-LightSpeed v2 header:   26 bytes
+LightSpeed v2 header:   24 bytes
 Available payload:     1446 bytes
 Safe payload target:   1400 bytes
 ```
@@ -311,8 +309,8 @@ Messages are length-prefixed with a 2-byte big-endian length field:
 ```
 Offset  Hex                                           ASCII
 0000    10 00 00 2A  00 0F 42 40  C0 A8 01 64  68 1A 01 32  ...*..B@...dh..2
-0010    30 39 1E 61                                          09.a
-0020    [200 bytes of game payload...]
+0010    30 39 1E 61  00 07 02 08                           + FEC ext (4B)
+0018    [game payload...]
 
 Decoded:
   Version:  1
@@ -331,8 +329,8 @@ Decoded:
 ```
 Offset  Hex
 0000    11 00 00 05  00 0F 42 40  00 00 00 00  00 00 00 00
-0010    00 00 00 00
-
+0010    00 00 00 00  00 07 08 08                           + FEC ext (4B)
+0018    [XOR parity payload...]
 Decoded:
   Version:  1
   Flags:    0x01 (KEEPALIVE)
@@ -347,8 +345,8 @@ Decoded:
 ```
 Offset  Hex
 0000    20 00 00 2C  00 0F 42 40  C0 A8 01 64  68 1A 01 32  v2 header (20B)
-0010    30 39 1E 61  00 07 02 08  00 00                      + FEC ext (6B)
-001A    [game payload...]
+0010    30 39 1E 61  00 07 02 08                           + FEC ext (4B)
+0018    [game payload...]
 
 Decoded:
   Version:  2 (FEC enabled)
@@ -357,7 +355,7 @@ Decoded:
   FEC Group ID: 7
   Packet Index: 2 (3rd data packet, zero-indexed)
   Group Size:   8
-  FEC Flags:    0x00 (data, not parity)
+
 ```
 
 ### v2 FEC Parity Packet
@@ -365,8 +363,8 @@ Decoded:
 ```
 Offset  Hex
 0000    20 00 00 30  00 0F 42 40  00 00 00 00  00 00 00 00  v2 header (20B)
-0010    00 00 00 00  00 07 08 08  01 00                      + FEC ext (6B)
-001A    [XOR parity payload...]
+0010    00 00 00 00  00 07 08 08                           + FEC ext (4B)
+0018    [XOR parity payload...]
 
 Decoded:
   Version:  2 (FEC enabled)
@@ -375,7 +373,7 @@ Decoded:
   FEC Group ID: 7
   Packet Index: 8 (= group_size, so this is parity)
   Group Size:   8
-  FEC Flags:    0x01 (PARITY)
+
 ```
 
 ---

@@ -131,3 +131,279 @@ pub fn parse_proxy_addr(s: &str) -> anyhow::Result<SocketAddrV4> {
     }
     anyhow::bail!("Could not resolve proxy address: {}", s);
 }
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn test_default_values() {
+        let cli = Cli::try_parse_from(["lightspeed"]).unwrap();
+        assert_eq!(cli.config, "lightspeed.toml");
+        assert!(!cli.verbose);
+        assert!(!cli.dry_run);
+        assert!(!cli.test_tunnel);
+        assert!(!cli.test_control);
+        assert!(!cli.fec);
+        assert_eq!(cli.fec_k, 4);
+        assert!(!cli.warp);
+        assert!(!cli.no_warp);
+        assert!(!cli.warp_status);
+        assert!(!cli.probe_proxies);
+        assert!(!cli.live_test);
+        assert!(!cli.list_interfaces);
+        assert!(!cli.capture);
+        assert!(!cli.telemetry);
+        assert!(!cli.no_telemetry);
+        assert!(cli.game.is_none());
+        assert!(cli.proxy.is_none());
+        assert!(cli.game_server.is_none());
+        assert!(cli.local_port.is_none());
+        assert!(cli.route_strategy.is_none());
+        assert!(cli.echo_server.is_none());
+        assert!(cli.interface.is_none());
+    }
+
+    #[test]
+    fn test_short_flags() {
+        let cli = Cli::try_parse_from(["lightspeed", "-v"]).unwrap();
+        assert!(cli.verbose);
+
+        let cli = Cli::try_parse_from(["lightspeed", "-g", "fortnite"]).unwrap();
+        assert_eq!(cli.game.as_deref(), Some("fortnite"));
+
+        let cli = Cli::try_parse_from(["lightspeed", "-p", "10.0.0.1:4434"]).unwrap();
+        assert_eq!(cli.proxy.as_deref(), Some("10.0.0.1:4434"));
+
+        let cli = Cli::try_parse_from(["lightspeed", "-s", "192.168.1.1:27015"]).unwrap();
+        assert_eq!(cli.game_server.as_deref(), Some("192.168.1.1:27015"));
+
+        let cli = Cli::try_parse_from(["lightspeed", "-w"]).unwrap();
+        assert!(cli.warp);
+    }
+
+    #[test]
+    fn test_long_flags() {
+        let cli = Cli::try_parse_from([
+            "lightspeed",
+            "--verbose",
+            "--dry-run",
+            "--test-tunnel",
+            "--test-control",
+            "--fec",
+            "--no-warp",
+            "--warp-status",
+            "--probe-proxies",
+            "--live-test",
+            "--list-interfaces",
+            "--capture",
+            "--telemetry",
+            "--no-telemetry",
+        ])
+        .unwrap();
+        assert!(cli.verbose);
+        assert!(cli.dry_run);
+        assert!(cli.test_tunnel);
+        assert!(cli.test_control);
+        assert!(cli.fec);
+        assert!(cli.no_warp);
+        assert!(cli.warp_status);
+        assert!(cli.probe_proxies);
+        assert!(cli.live_test);
+        assert!(cli.list_interfaces);
+        assert!(cli.capture);
+        assert!(cli.telemetry);
+        assert!(cli.no_telemetry);
+    }
+
+    #[test]
+    fn test_long_flags_with_values() {
+        let cli = Cli::try_parse_from([
+            "lightspeed",
+            "--config",
+            "custom.toml",
+            "--game",
+            "cs2",
+            "--proxy",
+            "10.0.0.1:4434",
+            "--game-server",
+            "1.2.3.4:7777",
+            "--local-port",
+            "8888",
+            "--fec-k",
+            "8",
+            "--route-strategy",
+            "ml",
+            "--echo-server",
+            "10.0.0.1:9999",
+            "--interface",
+            "eth0",
+        ])
+        .unwrap();
+        assert_eq!(cli.config, "custom.toml");
+        assert_eq!(cli.game.as_deref(), Some("cs2"));
+        assert_eq!(cli.proxy.as_deref(), Some("10.0.0.1:4434"));
+        assert_eq!(cli.game_server.as_deref(), Some("1.2.3.4:7777"));
+        assert_eq!(cli.local_port, Some(8888));
+        assert_eq!(cli.fec_k, 8);
+        assert_eq!(cli.route_strategy.as_deref(), Some("ml"));
+        assert_eq!(cli.echo_server.as_deref(), Some("10.0.0.1:9999"));
+        assert_eq!(cli.interface.as_deref(), Some("eth0"));
+    }
+
+    #[test]
+    fn test_game_values() {
+        for game in &["fortnite", "cs2", "dota2", "rust"] {
+            let cli = Cli::try_parse_from([
+                "lightspeed", "-g", game,
+            ])
+            .unwrap();
+            assert_eq!(cli.game.as_deref(), Some(*game));
+        }
+    }
+
+    #[test]
+    fn test_fec_k_boundaries() {
+        // default is 4
+        let cli = Cli::try_parse_from(["lightspeed"]).unwrap();
+        assert_eq!(cli.fec_k, 4);
+
+        let cli = Cli::try_parse_from(["lightspeed", "--fec-k", "2"]).unwrap();
+        assert_eq!(cli.fec_k, 2);
+
+        let cli = Cli::try_parse_from(["lightspeed", "--fec-k", "16"]).unwrap();
+        assert_eq!(cli.fec_k, 16);
+    }
+
+    #[test]
+    fn test_combined_mode_flags() {
+        // Redirect mode with game server
+        let cli = Cli::try_parse_from([
+            "lightspeed",
+            "-g", "fortnite",
+            "-s", "10.0.0.1:7777",
+            "--fec",
+            "--warp",
+            "--route-strategy", "nearest",
+        ])
+        .unwrap();
+        assert_eq!(cli.game.as_deref(), Some("fortnite"));
+        assert_eq!(cli.game_server.as_deref(), Some("10.0.0.1:7777"));
+        assert!(cli.fec);
+        assert!(cli.warp);
+        assert_eq!(cli.route_strategy.as_deref(), Some("nearest"));
+    }
+
+    #[test]
+    fn test_capture_mode() {
+        let cli = Cli::try_parse_from([
+            "lightspeed",
+            "-g", "cs2",
+            "--capture",
+            "--interface", "Ethernet",
+        ])
+        .unwrap();
+        assert_eq!(cli.game.as_deref(), Some("cs2"));
+        assert!(cli.capture);
+        assert_eq!(cli.interface.as_deref(), Some("Ethernet"));
+    }
+
+    #[test]
+    fn test_live_test_mode() {
+        let cli = Cli::try_parse_from([
+            "lightspeed",
+            "--live-test",
+            "--echo-server", "10.0.0.1:9999",
+            "--proxy", "10.0.0.1:4434",
+        ])
+        .unwrap();
+        assert!(cli.live_test);
+        assert_eq!(cli.echo_server.as_deref(), Some("10.0.0.1:9999"));
+        assert_eq!(cli.proxy.as_deref(), Some("10.0.0.1:4434"));
+    }
+
+    #[test]
+    fn test_warp_flags() {
+        let cli = Cli::try_parse_from(["lightspeed", "-w"]).unwrap();
+        assert!(cli.warp);
+        assert!(!cli.no_warp);
+
+        let cli = Cli::try_parse_from(["lightspeed", "--no-warp"]).unwrap();
+        assert!(!cli.warp);
+        assert!(cli.no_warp);
+
+        let cli = Cli::try_parse_from(["lightspeed", "--warp-status"]).unwrap();
+        assert!(cli.warp_status);
+    }
+
+    #[test]
+    fn test_telemetry_flags() {
+        let cli = Cli::try_parse_from(["lightspeed", "--telemetry"]).unwrap();
+        assert!(cli.telemetry);
+        assert!(!cli.no_telemetry);
+
+        let cli = Cli::try_parse_from(["lightspeed", "--no-telemetry"]).unwrap();
+        assert!(!cli.telemetry);
+        assert!(cli.no_telemetry);
+    }
+
+    #[test]
+    fn test_route_strategies() {
+        for strategy in &["nearest", "ml", "multipath"] {
+            let cli = Cli::try_parse_from([
+                "lightspeed", "--route-strategy", strategy,
+            ])
+            .unwrap();
+            assert_eq!(cli.route_strategy.as_deref(), Some(*strategy));
+        }
+    }
+
+    // ── parse_proxy_addr tests ───────────────────────────────────────
+
+    #[test]
+    fn test_parse_proxy_addr_ipv4() {
+        let addr = parse_proxy_addr("192.168.1.1:4434").unwrap();
+        assert_eq!(addr.ip().octets(), [192, 168, 1, 1]);
+        assert_eq!(addr.port(), 4434);
+    }
+
+    #[test]
+    fn test_parse_proxy_addr_loopback() {
+        let addr = parse_proxy_addr("127.0.0.1:8080").unwrap();
+        assert_eq!(addr.ip().octets(), [127, 0, 0, 1]);
+        assert_eq!(addr.port(), 8080);
+    }
+
+    #[test]
+    fn test_parse_proxy_addr_invalid_ip() {
+        let result = parse_proxy_addr("not-an-ip:4434");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_proxy_addr_missing_port() {
+        let result = parse_proxy_addr("192.168.1.1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_proxy_addr_invalid_port() {
+        let result = parse_proxy_addr("192.168.1.1:99999");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_proxy_addr_empty() {
+        let result = parse_proxy_addr("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_proxy_addr_garbage() {
+        let result = parse_proxy_addr("garbage");
+        assert!(result.is_err());
+    }
+}

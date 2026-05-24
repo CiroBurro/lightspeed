@@ -1,0 +1,17 @@
+# Clippy configuration for LightSpeed
+# Enforces code quality standards across the workspace.
+
+# Maximum cognitive complexity for a function.
+# Functions exceeding this will trigger a clippy warning.
+cognitive-complexity-threshold = 30
+
+# Maximum number of arguments for a function.
+# Functions with more arguments will trigger a clippy warning.
+too-many-arguments-threshold = 8
+
+# Allow single-character names in certain contexts
+# (common in protocol code and math)
+allowed-dotfiles = []
+
+# Suppress warnings for specific lints that don't apply to our domain
+allow-dbg-in-tests = true
