@@ -1,1 +1,49 @@
-[workspace]resolver = "2"members = [    "protocol",    "client",    "proxy",    "client-gui",][workspace.package]version = "0.4.2"edition = "2021"authors = ["LightSpeed Contributors"]license = "MIT"repository = "https://github.com/ShibbityShwab/lightspeed"description = "Zero-cost global network optimizer — reduce and stabilize ping for multiplayer games"[workspace.dependencies]# Async runtimetokio = { version = "1", features = ["full"] }# Networkingsocket2 = { version = "0.5", features = ["all"] }bytes = "1"# Serialization / Configserde = { version = "1", features = ["derive"] }serde_json = "1"toml = "0.8"# CLIclap = { version = "4", features = ["derive"] }# Logging / Tracingtracing = "0.1"tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }# Error handlinganyhow = "1"thiserror = "1"# Internal crateslightspeed-protocol = { path = "protocol" }# Metricsprometheus = "0.13"# Timechrono = { version = "0.4", features = ["serde"] }
+[workspace]
+resolver = "2"
+members = [
+    "protocol",
+    "client",
+    "proxy",
+    "client-gui",
+]
+
+[workspace.package]
+version = "0.4.2"
+edition = "2021"
+authors = ["LightSpeed Contributors"]
+license = "MIT"
+repository = "https://github.com/ShibbityShwab/lightspeed"
+description = "Zero-cost global network optimizer — reduce and stabilize ping for multiplayer games"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Networking
+socket2 = { version = "0.5", features = ["all"] }
+bytes = "1"
+
+# Serialization / Config
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging / Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Internal crates
+lightspeed-protocol = { path = "protocol" }
+
+# Metrics
+prometheus = "0.13"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
