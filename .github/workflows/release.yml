@@ -1,6 +1,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -86,7 +87,7 @@ jobs:
       - name: Build release binaries
         run: cargo build --release --target ${{ matrix.target }}
 
-      # Package ΓÇö Windows (zip)
+      # Package — Windows (zip)
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -100,7 +101,7 @@ jobs:
           Copy-Item LICENSE "$staging/" -ErrorAction SilentlyContinue
           Compress-Archive -Path "$staging/*" -DestinationPath "${{ matrix.archive }}"
 
-      # Package ΓÇö Linux (tar.gz)
+      # Package — Linux (tar.gz)
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -113,7 +114,7 @@ jobs:
           cp LICENSE "$staging/" 2>/dev/null || true
           tar czf "${{ matrix.archive }}" "$staging"
 
-      # Package ΓÇö macOS (tar.gz)
+      # Package — macOS (tar.gz)
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
