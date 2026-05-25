@@ -1,7 +1,6 @@
 name: Release
 
 on:
-  workflow_dispatch: # Allow manual trigger from GitHub UI
   push:
     tags:
       - 'v*'
@@ -22,6 +21,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      - name: Run tests
         run: cargo test --workspace --verbose
 
   build:
@@ -72,6 +72,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+        with:
+          key: ${{ matrix.target }}
 
       # Cross-compilation toolchain for ARM64
       - name: Install cross-compilation tools
@@ -84,7 +86,7 @@ jobs:
       - name: Build release binaries
         run: cargo build --release --target ${{ matrix.target }}
 
-      # Package — Windows (zip)
+      # Package ΓÇö Windows (zip)
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -98,7 +100,7 @@ jobs:
           Copy-Item LICENSE "$staging/" -ErrorAction SilentlyContinue
           Compress-Archive -Path "$staging/*" -DestinationPath "${{ matrix.archive }}"
 
-      # Package — Linux (tar.gz)
+      # Package ΓÇö Linux (tar.gz)
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -111,7 +113,7 @@ jobs:
           cp LICENSE "$staging/" 2>/dev/null || true
           tar czf "${{ matrix.archive }}" "$staging"
 
-      # Package — macOS (tar.gz)
+      # Package ΓÇö macOS (tar.gz)
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
