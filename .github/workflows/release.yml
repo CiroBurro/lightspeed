@@ -22,7 +22,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
-      - name: Run tests
         run: cargo test --workspace --verbose
 
   build:
@@ -73,8 +72,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
-        with:
-          key: ${{ matrix.target }}
 
       # Cross-compilation toolchain for ARM64
       - name: Install cross-compilation tools
