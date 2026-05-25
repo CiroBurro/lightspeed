@@ -1,7 +1,8 @@
 # cargo-deny v2 configuration for LightSpeed
 [advisories]
+yanked = "warn"
 ignore = [
-  # ── unmaintained GTK3 bindings (lightspeed-gui tray-icon transitive dep) ─
+  # -- unmaintained GTK3 bindings (lightspeed-gui tray-icon transitive dep) --
   { id = "RUSTSEC-2024-0412", reason = "gdk unmaintained; GUI-only transitive dep via tray-icon, no impact on proxy" },
   { id = "RUSTSEC-2024-0413", reason = "atk unmaintained; GUI-only transitive dep via tray-icon, no impact on proxy" },
   { id = "RUSTSEC-2024-0415", reason = "gtk unmaintained; GUI-only transitive dep via tray-icon, no impact on proxy" },
@@ -9,28 +10,33 @@ ignore = [
   { id = "RUSTSEC-2024-0418", reason = "gdk-sys unmaintained; GUI-only transitive dep via tray-icon, no impact on proxy" },
   { id = "RUSTSEC-2024-0419", reason = "gtk3-macros unmaintained; GUI-only transitive dep, no runtime security impact" },
   { id = "RUSTSEC-2024-0420", reason = "gtk-sys unmaintained; GUI-only transitive dep via tray-icon, no impact on proxy" },
-  # ── other unmaintained utility crates pulled in by GUI / proptest stack ───
+  # -- other unmaintained utility crates pulled in by GUI / proptest stack ---
   { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained; build-time proc-macro only, no runtime impact" },
   { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; macro-only crate, zero runtime security impact" },
-  # ── protobuf (Prometheus metrics only, no user-controlled parsing) ────────
+  # -- protobuf (Prometheus metrics only, no user-controlled parsing) --------
   { id = "RUSTSEC-2024-0437", reason = "protobuf used only in prometheus monitoring; no user-controlled parsing surface" },
-  # ── rand 0.8 seed entropy in debug/warn log (not a runtime vuln in release) ─
+  # -- rand 0.8 seed entropy in debug/warn log (not a runtime vuln in release) -
   { id = "RUSTSEC-2026-0097", reason = "rand 0.8 logs seed in debug/warn mode; trace logging disabled in release builds" },
+  # -- unmaintained crates with no safe upgrade path -------------------------
+  { id = "RUSTSEC-2025-0141", reason = "bincode unmaintained; v1.3.3 considered complete by maintainers, zero runtime risk" },
+  { id = "RUSTSEC-2024-0384", reason = "instant unmaintained; linfa transitive dep, upstream migration tracked" },
 ]
 
 [licenses]
 allow = [
   "MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib",
-  # Unicode / ICU — idna/url/webbrowser chain (GUI only)
+  # Unicode / ICU -- idna/url/webbrowser chain (GUI only)
   "Unicode-3.0",         # icu_collections, icu_locale_core, icu_normalizer, etc.
   # GUI crate additional licenses:
-  "BSL-1.0",             # clipboard-win, error-code (arboard → egui-winit chain)
+  "BSL-1.0",             # clipboard-win, error-code (arboard -> egui-winit chain)
   "OFL-1.1",             # epaint_default_fonts (egui embedded fonts)
   "LicenseRef-UFL-1.0",  # epaint_default_fonts Ubuntu Font License (non-SPDX)
-  "MPL-2.0",             # option-ext (dirs → tray-icon chain)
-  # WinDivert (kernel-level packet filter) — LGPL-3.0, used only in lightspeed-client
+  "MPL-2.0",             # option-ext (dirs -> tray-icon chain)
+  # WinDivert (kernel-level packet filter) -- LGPL-3.0, used only in lightspeed-client
   "LGPL-3.0-or-later",   # windivert, windivert-sys
+  # webpki-root-certs (TLS trust anchors, bundled in binary)
+  "CDLA-Permissive-2.0",
 ]
 
 [bans]

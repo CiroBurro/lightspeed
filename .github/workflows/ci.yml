@@ -256,8 +256,17 @@ while True:
           " &
           PROXY_PID=$!
 
-          # Wait a moment for servers to start
-          sleep 1
+          # Wait for echo server (max 10 seconds)
+          for i in $(seq 1 20); do
+            python3 -c "import socket; s=socket.socket(); s.settimeout(0.5); s.connect(('127.0.0.1',9999)); s.close()" 2>/dev/null && break
+            sleep 0.5
+          done
+
+          # Wait for proxy (max 10 seconds)
+          for i in $(seq 1 20); do
+            python3 -c "import socket; s=socket.socket(); s.settimeout(0.5); s.connect(('127.0.0.1',9998)); s.close()" 2>/dev/null && break
+            sleep 0.5
+          done
 
           # Run the E2E test
           python3 tools/e2e_test.py
