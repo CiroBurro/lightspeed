@@ -67,3 +67,7 @@ tools/vultr-mcp/src/
 tools/vultr-mcp/build/
 tools/build_gemini_context.js
 tools/build_gemini_context.py
+
+# AI assistant generated artifacts
+.kilo/
+.omo/
