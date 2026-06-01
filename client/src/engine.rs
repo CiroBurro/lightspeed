@@ -25,7 +25,7 @@ use crate::redirect::{RedirectStats, UdpRedirect};
 pub struct EngineStatus {
     /// Whether the keepalive loop is actively running.
     pub connected: bool,
-    /// Proxy address as a display string, e.g. `"149.28.84.139:4434"`.
+    /// Proxy address as a display string, e.g. `"YOUR_PROXY_IP:4434"`.
     pub proxy_addr: String,
     /// Latest round-trip time in milliseconds (0.0 when no measurement).
     pub latest_rtt_ms: f64,

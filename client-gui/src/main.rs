@@ -42,8 +42,10 @@ fn windows_main() -> anyhow::Result<()> {
         rt.handle().clone(),
     )));
 
-    // Auto-connect to the default proxy (LAX).
-    let proxy: std::net::SocketAddrV4 = "149.28.84.139:4434".parse().unwrap();
+    // Connect to the proxy configured via LIGHTSPEED_PROXY env var.
+    let proxy_addr = std::env::var("LIGHTSPEED_PROXY")
+        .unwrap_or_else(|_| "127.0.0.1:4434".to_string());
+    let proxy: std::net::SocketAddrV4 = proxy_addr.parse().unwrap();
     engine.lock().unwrap().connect(proxy);
 
     let native_options = eframe::NativeOptions {

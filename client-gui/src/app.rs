@@ -27,16 +27,18 @@ use tray_icon::{
 // ── Proxy nodes ────────────────────────────────────────────────────────────
 
 /// (addr, label, recommended-for hint)
-const PROXIES: &[(&str, &str, &str)] = &[
+/// Populated at runtime from LIGHTSPEED_PROXIES env var or falls back to placeholders.
+/// Set LIGHTSPEED_PROXIES='["YOUR_IP:4434","YOUR_IP_2:4434"]' to configure.
+const DEFAULT_PROXIES: &[(&str, &str, &str)] = &[
     (
-        "149.28.84.139:4434",
+        "YOUR_LAX_IP:4434",
         "LAX — US West",
-        "Best for NA/EU servers (you are 206ms away)",
+        "Best for NA/EU servers",
     ),
     (
-        "149.28.144.74:4434",
+        "YOUR_SGP_IP:4434",
         "SGP — Singapore",
-        "Best for SEA/AU servers (you are 31ms away)",
+        "Best for SEA/AU servers",
     ),
 ];
 

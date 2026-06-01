@@ -638,14 +638,14 @@ mod tests {
     fn test_is_ip_routed_public_ips() {
         // Public IPs should be routed through WARP
         assert!(WarpManager::is_ip_routed_static(Ipv4Addr::new(
-            149, 28, 84, 139
-        ))); // Vultr LA
+            104, 26, 1, 50
+        ))); // Example public IP (Cloudflare)
         assert!(WarpManager::is_ip_routed_static(Ipv4Addr::new(
-            149, 28, 144, 74
-        ))); // Vultr SGP
+            1, 1, 1, 1
+        ))); // Cloudflare DNS
         assert!(WarpManager::is_ip_routed_static(Ipv4Addr::new(
-            163, 192, 3, 134
-        ))); // OCI SJ
+            8, 8, 8, 8
+        ))); // Google DNS
         assert!(WarpManager::is_ip_routed_static(Ipv4Addr::new(8, 8, 8, 8))); // Google DNS
     }
 
@@ -675,13 +675,13 @@ mod tests {
         // when warp-cli tunnel dump is unavailable (e.g. CI).
         let mut manager = WarpManager::new();
         let ips = vec![
-            Ipv4Addr::new(149, 28, 84, 139),
-            Ipv4Addr::new(163, 192, 3, 134),
+            Ipv4Addr::new(192, 0, 2, 1),
+            Ipv4Addr::new(198, 51, 100, 1),
         ];
         let results = manager.verify_proxy_routing(&ips);
         assert_eq!(results.len(), 2);
-        assert!(results[0].1); // Vultr LA routed
-        assert!(results[1].1); // OCI SJ routed
+        assert!(results[0].1);
+        assert!(results[1].1);
     }
 
     // ── Display ───────────────────────────────────────────────────────────────

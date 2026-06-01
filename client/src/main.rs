@@ -4,31 +4,18 @@
 //! Captures game UDP packets and tunnels them through optimally-selected
 //! proxy nodes to reduce latency via better routing paths.
 
-// Modules marked #[allow(dead_code)] contain scaffolded interfaces
-// for future integration (game capture pipeline, ML routing, etc.)
-#[allow(dead_code)]
 mod capture;
 mod cli;
-#[allow(dead_code)]
 mod config;
-#[allow(dead_code)]
 mod error;
-#[allow(dead_code)]
 mod games;
-#[allow(dead_code)]
 mod ml;
 mod modes;
-#[allow(dead_code)]
 mod quic;
-#[allow(dead_code)]
 mod redirect;
-#[allow(dead_code)]
 mod route;
-#[allow(dead_code)]
 mod telemetry;
-#[allow(dead_code)]
 mod tunnel;
-#[allow(dead_code)]
 mod warp;
 
 use std::collections::HashMap;
@@ -106,10 +93,14 @@ async fn main() -> anyhow::Result<()> {
                 "   Mode:     {}",
                 warp_info.mode.unwrap_or_else(|| "unknown".into())
             );
-            let proxy_ips = vec![
-                Ipv4Addr::new(149, 28, 84, 139), // Vultr LA
-                Ipv4Addr::new(149, 28, 144, 74), // Vultr SGP
-            ];
+            // Read proxy IPs from config or env var, with placeholder fallback for testing
+            let proxy_ips = if let Ok(ips_str) = std::env::var("LIGHTSPEED_PROXY_IPS") {
+                ips_str.split(',').filter_map(|s| s.trim().parse().ok()).collect()
+            } else {
+                vec![
+                    Ipv4Addr::new(104, 26, 1, 50), // Example public IP for testing
+                ]
+            };
             warp_manager.print_summary(&proxy_ips);
             if let Some(stats) = warp_manager.tunnel_stats() {
                 info!("   Tunnel stats:\n{}", stats);
@@ -336,10 +327,10 @@ async fn main() -> anyhow::Result<()> {
     //
     // Collects live RTT data from keepalive probes and retrains the
     // route model when enough new data accumulates.
-    let (proxy_id, proxy_region) = match proxy_addr.ip().octets() {
-        [149, 28, 84, 139] => ("proxy-lax".to_string(), "us-west-lax".to_string()),
-        [149, 28, 144, 74] => ("relay-sgp".to_string(), "asia-sgp".to_string()),
-        _ => (format!("proxy-{}", proxy_addr.ip()), "unknown".to_string()),
+    let (proxy_id, proxy_region) = if let Some(id) = std::env::var("LIGHTSPEED_PROXY_ID").ok().filter(|s| !s.is_empty()) {
+        (id, std::env::var("LIGHTSPEED_PROXY_REGION").unwrap_or_else(|_| "unknown".to_string()))
+    } else {
+        (format!("proxy-{}", proxy_addr.ip()), "unknown".to_string())
     };
 
     let online_learner = {

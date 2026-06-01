@@ -13,8 +13,8 @@
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 
-TERRAFORM_DIR="${TERRAFORM_DIR:-../terraform}"
 TIMEOUT=5
+SSH_OPTS="-o ConnectTimeout=10 -o BatchMode=yes"
 PASS=0
 FAIL=0
 TOTAL=0
@@ -33,7 +33,6 @@ for arg in "$@"; do
     case "$arg" in
         --metrics) SHOW_METRICS=true ;;
         --json)    JSON_OUTPUT=true ;;
-        *)         TERRAFORM_DIR="$arg" ;;
     esac
 done
 
@@ -61,11 +60,15 @@ BUILTIN_NODES='{}'
 # ── Resolve node list ───────────────────────────────────────
 if [ -n "${LIGHTSPEED_NODES:-}" ]; then
     NODES="$LIGHTSPEED_NODES"
-elif command -v terraform &>/dev/null && [ -d "$TERRAFORM_DIR" ]; then
-    NODES=$(cd "$TERRAFORM_DIR" && terraform output -json proxy_nodes 2>/dev/null || echo "")
-    [ -z "$NODES" ] || [ "$NODES" = "{}" ] && NODES="$BUILTIN_NODES"
 else
     NODES="$BUILTIN_NODES"
+fi
+
+if [ "$NODES" = '{}' ] || [ -z "$NODES" ]; then
+    echo "⚠️  No nodes configured."
+    echo "  Set LIGHTSPEED_NODES env var or edit BUILTIN_NODES in this script."
+    echo "  Example: LIGHTSPEED_NODES='{\"us-west-lax\":{\"health_url\":\"http://YOUR_IP:8080/health\",\"node_id\":\"proxy-us-west\"}}'"
+    exit 1
 fi
 
 if [ "$JSON_OUTPUT" = false ]; then

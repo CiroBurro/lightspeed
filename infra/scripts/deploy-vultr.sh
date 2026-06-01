@@ -20,17 +20,30 @@ set -euo pipefail
 # ── Configuration ────────────────────────────────────────────
 SSH_KEY="${DEPLOY_SSH_KEY:-$HOME/.ssh/lightspeed_vultr}"
 SSH_USER="${DEPLOY_SSH_USER:-root}"
-SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes"
+SSH_OPTS="-o ConnectTimeout=10 -o BatchMode=yes"
 BINARY_NAME="lightspeed-proxy"
 REMOTE_BINARY="/usr/local/bin/${BINARY_NAME}"
 SERVICE_NAME="lightspeed-proxy"
 
-# Vultr mesh nodes — production 2-node mesh (BKK sourced).
+# Vultr mesh nodes.
+# Set LIGHTSPEED_NODES as a JSON object, or add entries to the NODES map below.
+# Example: export LIGHTSPEED_NODES='{"proxy-lax":{"ip":"1.2.3.4"}}'
 # Run setup-new-node.sh to provision a new node, then add it below.
 # Format: NODES["node-name"]="IP_ADDRESS"
 declare -A NODES
-NODES["proxy-lax"]="149.28.84.139"    # us-west-lax  — primary proxy, 206 ms from BKK
-NODES["relay-sgp"]="149.28.144.74"    # asia-sgp     — FEC multipath / SEA relay, 31 ms from BKK
+
+# Load from env var if available
+if [ -n "${LIGHTSPEED_NODES:-}" ]; then
+    # Parse LIGHTSPEED_NODES JSON to populate NODES (requires jq)
+    while IFS= read -r key; do
+        ip=$(echo "$LIGHTSPEED_NODES" | jq -r ".[$key].ip // .[$key]")
+        NODES["$key"]="$ip"
+    done < <(echo "$LIGHTSPEED_NODES" | jq -r 'keys[]')
+fi
+
+# Fallback defaults (placeholder — replace with your actual node IPs)
+# NODES["proxy-lax"]="YOUR_NODE_IP_1"    # us-west-lax
+# NODES["relay-sgp"]="YOUR_NODE_IP_2"    # asia-sgp
 
 # Colors
 GREEN='\033[0;32m'
