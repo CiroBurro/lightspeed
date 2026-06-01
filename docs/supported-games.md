@@ -7,13 +7,13 @@ All use UDP game-server traffic. Ports shown are the default range (auto-detecte
 |------------------|-----------------|-------------|------------------------------------------------|
 | Rust             | 28015–28017     | ✅           | EAC compatible. F1 console for manual connect. |
 | CS2              | 27015–27050     | ✅           | VAC compatible.                                |
-| Dota 2           | 27015–27030     | ✅           | VAC compatible.                                |
+| Dota 2           | 27015–27050     | ✅           | VAC compatible.                                |
 | Valorant         | 7000–7500       | ✅           | Vanguard compatible.                           |
 | Apex Legends     | 37000–37050     | ✅           | EAC compatible.                                |
 | League of Legends| 5000–5500       | ✅           |                                                |
-| PUBG             | 7777–7843       | ✅           | BattlEye compatible.                           |
-| Fortnite         | 9000            | ✅           | EAC compatible.                                |
-| Overwatch 2      | 3724            | ✅           | Battle.net launcher.                           |
+| PUBG             | 7000–17999      | ✅           | BattlEye compatible.                           |
+| Fortnite         | 7000–9000       | ✅           | EAC compatible.                                |
+| Overwatch 2      | 3478–6250       | ✅           | Battle.net launcher.                           |
 
 ---
 

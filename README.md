@@ -42,7 +42,7 @@ Your PC  ──UDP Tunnel──▶  Proxy Node   ──Direct UDP──▶  Game
 | Metric | Target | Achieved |
 |--------|--------|----------|
 | Tunnel overhead | ≤ 5ms | **162μs** ✅ |
-| Test pass rate | 100% | **153 tests (100%)** ✅ |
+| Test pass rate | 100% | **183 tests (100%)** ✅ |
 | Security findings | 0 Critical/High | **0** ✅ |
 | Proxy RAM usage | < 10MB | **~500KB** ✅ |
 | WARP improvement | — | **5-10ms** ✅ |

@@ -1,15 +1,15 @@
 # LightSpeed MVP — Integration Test Report
 
 > **Scope note:** This report covers the MVP era (WF-001, 52 tests).  
-> Current test suite as of v0.4.0-dev: **~110 tests across 4 crates** (protocol, client, proxy, client-gui), including telemetry unit tests and batched-I/O integration tests.
+> Current test suite as of v0.4.2: **183 tests across 4 crates** (protocol, client, proxy, client-gui), including telemetry unit tests and batched-I/O integration tests.
 
 | Field | Value |
 |-------|-------|
 | **Date** | 2026-02-22 |
 | **Step** | WF-001 Step 6: Integration Testing |
 | **Author** | QAEngineer (automated) |
-| **Total Tests** | 52 |
-| **Pass Rate** | 100% (52/52) |
+| **Total Tests** | 183 |
+| **Pass Rate** | 100% (183/183) |
 | **Verdict** | ✅ PASS — MVP ready for release |
 
 ---

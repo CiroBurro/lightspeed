@@ -39,6 +39,14 @@ scrape_configs:
       #     provider: "vultr"
       #     role: "relay"
 
+      # Development — local proxy on default port (uncomment for local testing)
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          node_id: "local-dev"
+          region: "localhost"
+          provider: "local"
+          role: "dev"
+
   # ── Prometheus self-monitoring ─────────────────────────────
   - job_name: "prometheus"
     static_configs:

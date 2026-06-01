@@ -1,7 +1,7 @@
 # ──────────────────────────────────────────────────────────────
 # LightSpeed Proxy — Multi-stage Docker Build
 #
-# Targets: linux/amd64, linux/arm64 (Oracle Cloud ARM Ampere)
+# Targets: linux/amd64, linux/arm64 (Vultr Cloud)
 # Base: Debian slim for minimal attack surface
 # ──────────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ RUN mkdir -p protocol/src client/src proxy/src client-gui/src && \
     echo "fn main() {}" > client-gui/src/main.rs
 
 # Build dependencies only (cached layer)
-RUN cargo build --release --bin lightspeed-proxy 2>/dev/null || true
+RUN cargo build --release --bin lightspeed-proxy || echo "Note: dependency cache layer may need real source"
 
 # Now copy real source code
 COPY protocol/ protocol/

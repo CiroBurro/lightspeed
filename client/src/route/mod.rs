@@ -4,7 +4,7 @@
 //! Routes can be selected via:
 //! - **Nearest**: Simple geographic/latency-based selection
 //! - **ML**: AI-powered route prediction using linfa
-//! - **Multipath**: Send on multiple paths, use fastest arrival
+//! - **Multipath**: Send on multiple paths, use fastest arrival (planned — engine not yet implemented)
 
 pub mod failover;
 pub mod multipath;
@@ -66,7 +66,8 @@ pub enum RouteStrategy {
     Nearest,
     /// ML-predicted optimal route.
     MlPredicted,
-    /// Multipath — use multiple proxies simultaneously.
+    /// Multipath — use multiple proxies simultaneously (not yet implemented).
+    #[allow(dead_code)]
     Multipath,
     /// Failover — using backup after primary failed.
     Failover,

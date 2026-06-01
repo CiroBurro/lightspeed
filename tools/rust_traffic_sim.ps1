@@ -6,7 +6,8 @@
 #   1. lightspeed-gui.exe is open (as Admin), Rust selected, Auto-capture ACTIVE
 #   2. echo server is running on proxy-lax (handled by the agent via SSH)
 
-$target = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Parse("149.28.84.139"), 28015)
+$proxyIp = if ($env:LIGHTSPEED_PROXY) { $env:LIGHTSPEED_PROXY.Split(':')[0] } else { "YOUR_PROXY_IP" }
+$target = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Parse($proxyIp), 28015)
 $udp    = New-Object System.Net.Sockets.UdpClient
 $udp.Client.ReceiveTimeout = 150   # ms – non-blocking poll
 $remote = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
@@ -16,7 +17,7 @@ $sent    = 0
 $received = 0
 
 Write-Host "=== LightSpeed Rust E2E Test ===" -ForegroundColor Cyan
-Write-Host "Sending UDP to 149.28.84.139:28015 (Rust port) every 100ms" -ForegroundColor Cyan
+Write-Host "Sending UDP to ${proxyIp}:28015 (Rust port) every 100ms" -ForegroundColor Cyan
 Write-Host "Watch GUI: Captured / From proxy / Injected should all increment" -ForegroundColor Cyan
 Write-Host "RX lines here prove the injector wrote frames back to your NIC" -ForegroundColor Green
 Write-Host "Press Ctrl+C to stop`n"

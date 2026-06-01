@@ -92,7 +92,7 @@ main.rs ────────────────────────
   │
   ├── route/                         ← Proxy selection & failover
   │   ├── mod.rs                     ← ProxyNode, RouteSelector trait, ProxyHealth
-  │   ├── selector.rs                ← NearestSelector (latency), MlSelector (Random Forest)
+  │   ├── selector.rs                ← NearestSelector (latency), MlSelector (Linear Ensemble)
   │   ├── multipath.rs               ← Multi-path routing config
   │   └── failover.rs                ← Automatic failover state machine
   │
@@ -106,7 +106,7 @@ main.rs ────────────────────────
   │   ├── data.rs                    ← Synthetic training data generation
   │   ├── features.rs                ← NetworkFeatures (11 inputs), LatencyTracker
   │   ├── predict.rs                 ← Inference: linfa RF or heuristic fallback
-  │   └── trainer.rs                 ← Model training pipeline (Random Forest)
+  │   └── trainer.rs                 ← Model training pipeline (Linear Ensemble)
   │
 │
   ├── telemetry.rs                   ← Session telemetry: collector, TelemetryEvent, report

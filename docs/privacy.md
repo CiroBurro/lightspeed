@@ -59,7 +59,7 @@ to the serialised report.
 ## Where data goes
 
 Telemetry reports are sent via **HTTP POST to port 8080 on the proxy node you
-are already tunnelling through** (e.g. `149.28.84.139:8080/telemetry`).
+are already tunnelling through** (e.g. `YOUR_PROXY_IP:8080/telemetry`).
 
 - The proxy node stores **only an in-memory counter** (`telemetry_reports_total`)
   that is exposed in its Prometheus metrics endpoint.
