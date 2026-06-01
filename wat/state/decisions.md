@@ -89,3 +89,23 @@
 **Rationale:** Completed all protocol doc fixes from the audit. Every reference to v2 header size (26→24 bytes), FEC extension size (6→4 bytes), v1 diagram field name (Reserved→Session Token), and all wire format examples now match the actual implementation in `protocol/src/fec.rs` (FEC_HEADER_SIZE = 4).
 **Impact:** Protocol documentation is now a single source of truth. Wire format examples correctly show 4-byte FEC extension at offset 0x14-0x17 with payload starting at 0x18.
 **Alternatives Considered:** Reverting FEC header to 6 bytes to match old docs — rejected because 4-byte format is deployed and more efficient.
+
+---
+
+### 2026-06-01: Post-WF-010 Audit Remediation Complete
+
+**Agent:** SysArch + RustDev
+**Status:** Accepted
+**Rationale:** Performed post-audit remediation of 3 medium-priority and 7 low-priority findings from the WF-010 build-health audit. All fixes compile cleanly and pass tests.
+**Impact:**
+- **M-5 Threading Safety (`interceptor/traits.rs`):** Added SAFETY comment to `detected_server: std::sync::Mutex` documenting the no-await-point invariant. Migration to `tokio::sync::Mutex` deferred because `snapshot()` must remain callable from synchronous GUI threads.
+- **M-6 Firewall Error Handling (`interceptor/windows.rs`, `modes/capture_mode.rs`):** Replaced silent `let _ = ...output()` with `match` error handling in `add_fw_rule()`, `remove_fw_rule()`, and `remove_firewall_rule()`. Failures now emit `tracing::warn!` with stderr context.
+- **M-7 FEC Deduplication (`protocol/src/fec.rs` + 5 files):** Extracted `build_fec_data_packet()`, `build_fec_parity_packet()`, and `decode_fec_payload()` into shared helpers in the protocol crate. Eliminated ~120 lines of duplicated packet-building logic across `capture/windivert_redirect.rs`, `tunnel/relay.rs`, `redirect.rs`, `modes/capture_mode.rs`, and `modes/live_test.rs`.
+- **L-1 Dependabot:** Added `.github/dependabot.yml` for weekly Cargo and GitHub Actions dependency scans.
+- **L-2 CI cargo-audit:** Aligned `ci.yml` with `security.yml` by adding `--locked` to `cargo install cargo-audit`.
+- **L-3 Windows GUI CI:** Added `windows-gui` job to `ci.yml` that builds `lightspeed-gui` on `windows-latest` (previously excluded everywhere).
+- **L-4 Deprecated `--all` flag:** Removed `--all` from `cargo test --workspace --all --exclude lightspeed-gui` in `ci.yml`.
+- **L-5 CHANGELOG ordering:** Moved `## [0.4.1]` section from bottom of `CHANGELOG.md` to the top (newest-first).
+- **L-6 PR Template:** Added `.github/PULL_REQUEST_TEMPLATE.md` with type labels, checklist, and testing section.
+- **L-7 CODEOWNERS:** Added `.github/CODEOWNERS` with default ownership assignments.
+**Alternatives Considered:** Making `InterceptorCounters::snapshot()` async for M-5 — rejected because it would break the GUI thread call site.

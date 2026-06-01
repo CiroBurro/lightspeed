@@ -326,8 +326,9 @@ pub async fn run_live_test(
 
     if let Some(echo_addr) = echo_server {
         if fec_enabled {
-            use bytes::BytesMut;
-            use lightspeed_protocol::{FecEncoder, FecHeader, FEC_HEADER_SIZE, HEADER_SIZE};
+            use lightspeed_protocol::{
+                build_fec_data_packet, build_fec_parity_packet, FecEncoder, FecHeader,
+            };
 
             for (label, proxy) in &proxy_addrs {
                 let socket = match UdpSocket::bind("0.0.0.0:0").await {
@@ -356,27 +357,17 @@ pub async fn run_live_test(
 
                     let header = TunnelHeader::new_fec(seq, ts, local_addr, echo_addr);
                     let fec_hdr = FecHeader::data(block_id, index, fec_k);
-
-                    let mut pkt =
-                        BytesMut::with_capacity(HEADER_SIZE + FEC_HEADER_SIZE + payload.len());
-                    pkt.extend_from_slice(&header.encode_to_array());
-                    fec_hdr.encode(&mut pkt);
-                    pkt.extend_from_slice(payload.as_bytes());
+                    let pkt = build_fec_data_packet(&header, &fec_hdr, payload.as_bytes());
 
                     let parity = encoder.add_packet(payload.as_bytes());
                     let _ = socket.send_to(&pkt, proxy).await;
 
-                    // Send parity when the block completes
                     if let Some(parity_bytes) = parity {
                         let parity_header =
                             TunnelHeader::new_fec(seq + 1000, ts, local_addr, echo_addr);
                         let parity_fec = FecHeader::parity(block_id, fec_k);
-                        let mut parity_pkt = BytesMut::with_capacity(
-                            HEADER_SIZE + FEC_HEADER_SIZE + parity_bytes.len(),
-                        );
-                        parity_pkt.extend_from_slice(&parity_header.encode_to_array());
-                        parity_fec.encode(&mut parity_pkt);
-                        parity_pkt.extend_from_slice(&parity_bytes);
+                        let parity_pkt =
+                            build_fec_parity_packet(&parity_header, &parity_fec, &parity_bytes);
                         let _ = socket.send_to(&parity_pkt, proxy).await;
                     }
 

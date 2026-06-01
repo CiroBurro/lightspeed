@@ -12,13 +12,14 @@ use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
+use lightspeed_protocol::{
+    build_fec_data_packet, build_fec_parity_packet, decode_fec_payload,
+    FecDecoder, FecEncoder, FecHeader, TunnelHeader,
+};
 use tokio::net::UdpSocket;
 
 use crate::error::TunnelError;
-use lightspeed_protocol::{
-    FecDecoder, FecEncoder, FecHeader, TunnelHeader, FEC_HEADER_SIZE, HEADER_SIZE,
-};
 
 /// Get current timestamp in microseconds since epoch.
 fn now_us() -> u32 {
@@ -145,20 +146,12 @@ impl UdpRelay {
             let index = encoder.current_index();
             let k_size = index.max(2); // k_size for FEC header
 
-            // Build FEC data packet: [TunnelHeader v2][FecHeader][payload]
             let header = TunnelHeader::new_fec(seq, now_us(), orig_src, orig_dst);
             let fec_hdr = FecHeader::data(block_id, index, k_size);
+            let pkt_buf = build_fec_data_packet(&header, &fec_hdr, payload);
 
-            let mut pkt_buf =
-                BytesMut::with_capacity(HEADER_SIZE + FEC_HEADER_SIZE + payload.len());
-            pkt_buf.extend_from_slice(&header.encode_to_array());
-            fec_hdr.encode(&mut pkt_buf);
-            pkt_buf.extend_from_slice(payload);
-
-            // Feed payload into FEC encoder (XOR accumulation)
             let parity = encoder.add_packet(payload);
 
-            // Send the data packet
             let sent = socket.send_to(&pkt_buf, proxy_addr).await?;
             self.stats.packets_sent.fetch_add(1, Ordering::Relaxed);
             self.stats
@@ -173,17 +166,11 @@ impl UdpRelay {
                 "Sent FEC data packet"
             );
 
-            // If block is complete, send parity packet
             if let Some(parity_bytes) = parity {
                 let parity_seq = self.next_sequence();
                 let parity_header = TunnelHeader::new_fec(parity_seq, now_us(), orig_src, orig_dst);
                 let parity_fec = FecHeader::parity(block_id, k_size);
-
-                let mut parity_buf =
-                    BytesMut::with_capacity(HEADER_SIZE + FEC_HEADER_SIZE + parity_bytes.len());
-                parity_buf.extend_from_slice(&parity_header.encode_to_array());
-                parity_fec.encode(&mut parity_buf);
-                parity_buf.extend_from_slice(&parity_bytes);
+                let parity_buf = build_fec_parity_packet(&parity_header, &parity_fec, &parity_bytes);
 
                 let parity_sent = socket.send_to(&parity_buf, proxy_addr).await?;
                 self.stats.packets_sent.fetch_add(1, Ordering::Relaxed);
@@ -280,34 +267,18 @@ impl UdpRelay {
 
         // Handle FEC if enabled and packet has FEC flag
         if let Some(ref mut decoder) = self.fec_decoder {
-            if header.has_fec() && payload_slice.len() >= FEC_HEADER_SIZE {
-                let mut fec_slice: &[u8] = &payload_slice[..FEC_HEADER_SIZE];
-                if let Some(fec_hdr) = FecHeader::decode(&mut fec_slice) {
-                    let game_data = &payload_slice[FEC_HEADER_SIZE..];
-
-                    if fec_hdr.is_parity() {
-                        // Parity packet — try to recover
-                        let parity_data = Bytes::copy_from_slice(game_data);
-                        if let Some((_idx, recovered)) =
-                            decoder.receive_parity(&fec_hdr, parity_data)
-                        {
-                            self.stats.fec_recovered.fetch_add(1, Ordering::Relaxed);
-                            tracing::info!(
-                                block = fec_hdr.block_id,
-                                recovered_len = recovered.len(),
-                                "🔧 FEC recovered lost packet"
-                            );
-                            return Ok((header, recovered, proxy_addr));
-                        }
-                        // Parity consumed, no recovery needed — return empty
-                        return Ok((header, Bytes::new(), proxy_addr));
-                    } else {
-                        // Data packet — track for FEC and return payload
-                        let data_bytes = Bytes::copy_from_slice(game_data);
-                        decoder.receive_data(&fec_hdr, data_bytes.clone());
-                        return Ok((header, data_bytes, proxy_addr));
-                    }
+            if header.has_fec() {
+                if let Some(data) = decode_fec_payload(payload_slice, decoder) {
+                    self.stats.fec_recovered.fetch_add(1, Ordering::Relaxed);
+                    tracing::info!(
+                        block = header.sequence,
+                        recovered_len = data.len(),
+                        "🔧 FEC recovered lost packet"
+                    );
+                    return Ok((header, data, proxy_addr));
                 }
+                // Parity consumed, no recovery needed — return empty
+                return Ok((header, Bytes::new(), proxy_addr));
             }
         }
 
@@ -335,12 +306,7 @@ impl UdpRelay {
                 let dummy_addr = SocketAddrV4::new(std::net::Ipv4Addr::UNSPECIFIED, 0);
                 let header = TunnelHeader::new_fec(seq, now_us(), dummy_addr, dummy_addr);
                 let fec_hdr = FecHeader::parity(block_id, 0);
-
-                let mut buf =
-                    BytesMut::with_capacity(HEADER_SIZE + FEC_HEADER_SIZE + parity_bytes.len());
-                buf.extend_from_slice(&header.encode_to_array());
-                fec_hdr.encode(&mut buf);
-                buf.extend_from_slice(&parity_bytes);
+                let buf = build_fec_parity_packet(&header, &fec_hdr, &parity_bytes);
 
                 socket.send_to(&buf, proxy_addr).await?;
                 self.stats.fec_parity_sent.fetch_add(1, Ordering::Relaxed);

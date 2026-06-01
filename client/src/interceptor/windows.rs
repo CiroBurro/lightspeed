@@ -685,7 +685,7 @@ impl TrafficInterceptor for WinDivertInterceptor {
 fn add_fw_rule(port: u16) {
     let exe = std::env::current_exe().unwrap_or_default();
     let name = format!("LightSpeed WinDivert Tunnel {}", port);
-    let _ = std::process::Command::new("netsh")
+    match std::process::Command::new("netsh")
         .args([
             "advfirewall",
             "firewall",
@@ -697,14 +697,27 @@ fn add_fw_rule(port: u16) {
             "action=allow",
             &format!("program={}", exe.to_string_lossy()),
         ])
-        .output();
-    tracing::info!("🔓 Firewall: added inbound UDP rule for port {}", port);
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            tracing::info!("🔓 Firewall: added inbound UDP rule for port {}", port);
+        }
+        Ok(o) => {
+            tracing::warn!(
+                "Firewall rule add may have failed: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+        }
+        Err(e) => {
+            tracing::warn!("Failed to run netsh for firewall (need Administrator?): {}", e);
+        }
+    }
 }
 
 #[cfg(all(target_os = "windows", feature = "windivert-redirect"))]
 fn remove_fw_rule(port: u16) {
     let name = format!("LightSpeed WinDivert Tunnel {}", port);
-    let _ = std::process::Command::new("netsh")
+    match std::process::Command::new("netsh")
         .args([
             "advfirewall",
             "firewall",
@@ -712,8 +725,21 @@ fn remove_fw_rule(port: u16) {
             "rule",
             &format!("name={name}"),
         ])
-        .output();
-    tracing::info!("🔒 Firewall: removed WinDivert rule for port {}", port);
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            tracing::info!("🔒 Firewall: removed WinDivert rule for port {}", port);
+        }
+        Ok(o) => {
+            tracing::warn!(
+                "Firewall rule remove may have failed: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+        }
+        Err(e) => {
+            tracing::warn!("Failed to run netsh for firewall removal: {}", e);
+        }
+    }
 }
 
 #[cfg(not(target_os = "windows"))]

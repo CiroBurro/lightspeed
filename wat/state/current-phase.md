@@ -2,8 +2,8 @@
 
 **Workflow:** WF-010  
 **Agent:** SysArch + RustDev  
-**Status:** In-progress — WinDivert filter syntax fixed, awaiting live testing  
-**Last updated:** 2026-05-02
+**Status:** ✅ Post-audit remediation complete — awaiting live testing  
+**Last updated:** 2026-06-01
 
 ---
 

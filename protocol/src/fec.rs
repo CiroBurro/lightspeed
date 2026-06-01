@@ -614,6 +614,69 @@ pub struct FecStats {
 // Tests
 // ────────────────────────────────────────────────────────────
 
+// ────────────────────────────────────────────────────────────
+// Shared FEC packet helpers (eliminates duplication across 5+ files)
+// ────────────────────────────────────────────────────────────
+
+use crate::header::{TunnelHeader, HEADER_SIZE};
+
+/// Build a FEC data packet buffer: `[TunnelHeader v2][FecHeader][payload]`.
+///
+/// This is the canonical encoding used by every outbound FEC path
+/// (WinDivert redirect, relay, redirect mode, capture mode, live test).
+pub fn build_fec_data_packet(
+    header: &TunnelHeader,
+    fec_hdr: &FecHeader,
+    payload: &[u8],
+) -> BytesMut {
+    let mut pkt_buf = BytesMut::with_capacity(HEADER_SIZE + FEC_HEADER_SIZE + payload.len());
+    pkt_buf.extend_from_slice(&header.encode_to_array());
+    fec_hdr.encode(&mut pkt_buf);
+    pkt_buf.extend_from_slice(payload);
+    pkt_buf
+}
+
+/// Build a FEC parity packet buffer: `[TunnelHeader v2][FecHeader][parity_bytes]`.
+///
+/// Called immediately after [`FecEncoder::add_packet`] returns `Some(parity_bytes)`.
+pub fn build_fec_parity_packet(
+    header: &TunnelHeader,
+    fec_hdr: &FecHeader,
+    parity_bytes: &[u8],
+) -> BytesMut {
+    let mut pkt_buf = BytesMut::with_capacity(HEADER_SIZE + FEC_HEADER_SIZE + parity_bytes.len());
+    pkt_buf.extend_from_slice(&header.encode_to_array());
+    fec_hdr.encode(&mut pkt_buf);
+    pkt_buf.extend_from_slice(parity_bytes);
+    pkt_buf
+}
+
+/// Decode a FEC payload slice and feed it to the decoder.
+///
+/// Returns:
+/// - `Some(data_bytes)` for data packets (also tracked by decoder)
+/// - `Some(recovered_bytes)` when a parity packet triggers recovery
+/// - `None` for parity packets that don't trigger recovery, or on decode errors
+///
+/// This is the canonical decoding used by every inbound FEC path.
+pub fn decode_fec_payload(payload_slice: &[u8], decoder: &mut FecDecoder) -> Option<Bytes> {
+    if payload_slice.len() < FEC_HEADER_SIZE {
+        return None;
+    }
+    let mut fec_slice: &[u8] = &payload_slice[..FEC_HEADER_SIZE];
+    let fec_hdr = FecHeader::decode(&mut fec_slice)?;
+    let data = &payload_slice[FEC_HEADER_SIZE..];
+    if fec_hdr.is_parity() {
+        decoder
+            .receive_parity(&fec_hdr, Bytes::copy_from_slice(data))
+            .map(|(_, r)| r)
+    } else {
+        let b = Bytes::copy_from_slice(data);
+        decoder.receive_data(&fec_hdr, b.clone());
+        Some(b)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

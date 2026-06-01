@@ -35,7 +35,7 @@ jobs:
         run: cargo build --release --workspace --exclude lightspeed-gui
 
       - name: Test
-        run: cargo test --workspace --all --exclude lightspeed-gui
+        run: cargo test --workspace --exclude lightspeed-gui
 
   macos-smoke:
     name: macOS Smoke Test
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-audit
-        run: cargo install cargo-audit
+        run: cargo install cargo-audit --locked
       - name: Run cargo-audit
         run: cargo audit
 
@@ -115,6 +115,17 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --lib --exclude lightspeed-gui
+
+  windows-gui:
+    name: Windows GUI Build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build GUI (release)
+        run: cargo build --release -p lightspeed-gui
 
   benchmarks:
     name: Benchmark Regression

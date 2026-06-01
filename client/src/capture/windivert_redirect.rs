@@ -184,8 +184,9 @@ mod inner {
         stats: Arc<WinDivertStats>,
         shutdown_rx: oneshot::Receiver<()>,
     ) -> anyhow::Result<()> {
-        use bytes::BytesMut;
-        use lightspeed_protocol::{FecHeader, FEC_HEADER_SIZE, HEADER_SIZE};
+        use lightspeed_protocol::{
+            build_fec_data_packet, build_fec_parity_packet, decode_fec_payload, FecHeader,
+        };
         use windivert::address::WinDivertAddress;
         use windivert::layer::NetworkLayer;
         use windivert::prelude::{WinDivert, WinDivertFlags, WinDivertPacket};
@@ -622,12 +623,7 @@ mod inner {
                             seq, ts, game_src, game_dst,
                         );
                         let fec_hdr = FecHeader::data(block_id, index, cfg.fec_k);
-                        let mut pkt_buf = BytesMut::with_capacity(
-                            HEADER_SIZE + FEC_HEADER_SIZE + payload.len(),
-                        );
-                        pkt_buf.extend_from_slice(&hdr.encode_to_array());
-                        fec_hdr.encode(&mut pkt_buf);
-                        pkt_buf.extend_from_slice(&payload);
+                        let pkt_buf = build_fec_data_packet(&hdr, &fec_hdr, &payload);
                         let parity = encoder.add_packet(&payload);
                         let _ = tunnel_socket.send_to(&pkt_buf, proxy_addr).await;
                         if let Some(parity_bytes) = parity {
@@ -636,12 +632,7 @@ mod inner {
                                 ps, ts, game_src, game_dst,
                             );
                             let pfec = FecHeader::parity(block_id, cfg.fec_k);
-                            let mut pb = BytesMut::with_capacity(
-                                HEADER_SIZE + FEC_HEADER_SIZE + parity_bytes.len(),
-                            );
-                            pb.extend_from_slice(&ph.encode_to_array());
-                            pfec.encode(&mut pb);
-                            pb.extend_from_slice(&parity_bytes);
+                            let pb = build_fec_parity_packet(&ph, &pfec, &parity_bytes);
                             let _ = tunnel_socket.send_to(&pb, proxy_addr).await;
                             seq = seq.wrapping_add(1);
                         }
@@ -706,24 +697,8 @@ mod inner {
 
                     // Extract game payload (handle FEC if enabled)
                     let game_data: Option<bytes::Bytes> = if header.has_fec() {
-                        if payload.len() < FEC_HEADER_SIZE {
-                            continue;
-                        }
-                        let mut fec_slice: &[u8] = &payload[..FEC_HEADER_SIZE];
-                        let fec_hdr = match lightspeed_protocol::FecHeader::decode(&mut fec_slice) {
-                            Some(h) => h,
-                            None => continue,
-                        };
-                        let data = &payload[FEC_HEADER_SIZE..];
                         if let Some(ref mut dec) = fec_decoder {
-                            if fec_hdr.is_parity() {
-                                dec.receive_parity(&fec_hdr, bytes::Bytes::copy_from_slice(data))
-                                    .map(|(_, r)| r)
-                            } else {
-                                let b = bytes::Bytes::copy_from_slice(data);
-                                dec.receive_data(&fec_hdr, b.clone());
-                                Some(b)
-                            }
+                            decode_fec_payload(payload, dec)
                         } else {
                             None
                         }

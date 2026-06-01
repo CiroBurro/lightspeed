@@ -1,0 +1,23 @@
+# LightSpeed Code Owners
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+* @ShibbityShwab
+
+# Core protocol and networking
+/protocol/ @ShibbityShwab
+/client/src/tunnel/ @ShibbityShwab
+/proxy/src/ @ShibbityShwab
+
+# CI / infrastructure
+/.github/workflows/ @ShibbityShwab
+/infra/ @ShibbityShwab
+
+# Game profiles (community contributions welcome)
+/client/src/games/ @ShibbityShwab
+
+# GUI (Windows only)
+/client-gui/ @ShibbityShwab
+
+# Documentation
+docs/ @ShibbityShwab

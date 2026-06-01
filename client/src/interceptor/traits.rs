@@ -127,6 +127,9 @@ pub struct InterceptorCounters {
     /// Errors (intercept or inject failures).
     pub errors: AtomicU64,
     /// Auto-detected (or pre-configured) server address.
+    /// SAFETY: This `std::sync::Mutex` is used from async tasks but the lock
+    /// is never held across an await point.  If that changes, migrate to
+    /// `tokio::sync::Mutex` and make `snapshot()` async.
     pub detected_server: std::sync::Mutex<Option<SocketAddrV4>>,
 }
 

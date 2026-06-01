@@ -115,7 +115,7 @@ fn add_firewall_rule() {
 /// Remove the Windows Firewall rule added by [`add_firewall_rule`].
 #[cfg(target_os = "windows")]
 fn remove_firewall_rule() {
-    let _ = std::process::Command::new("netsh")
+    match std::process::Command::new("netsh")
         .args([
             "advfirewall",
             "firewall",
@@ -123,8 +123,21 @@ fn remove_firewall_rule() {
             "rule",
             &format!("name={}", FIREWALL_RULE_NAME),
         ])
-        .output();
-    tracing::info!("🔒 Windows Firewall: removed LightSpeed inbound rule");
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            tracing::info!("🔒 Windows Firewall: removed LightSpeed inbound rule");
+        }
+        Ok(o) => {
+            tracing::warn!(
+                "Windows Firewall rule remove may have failed: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+        }
+        Err(e) => {
+            tracing::warn!("Failed to run netsh for firewall removal: {}", e);
+        }
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -240,8 +253,9 @@ async fn run_capture_mode_inner(
     shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
     stat_slot: Option<CaptureStatSlot>,
 ) -> anyhow::Result<()> {
-    use bytes::BytesMut;
-    use lightspeed_protocol::{FecHeader, FEC_HEADER_SIZE, HEADER_SIZE};
+    use lightspeed_protocol::{
+        build_fec_data_packet, build_fec_parity_packet, decode_fec_payload, FecHeader,
+    };
 
     info!("🔍 Starting capture mode");
     info!(
@@ -463,45 +477,8 @@ async fn run_capture_mode_inner(
 
                 // Handle FEC if enabled
                 let game_payload: Option<bytes::Bytes> = if header.has_fec() {
-                    if payload.len() < lightspeed_protocol::FEC_HEADER_SIZE {
-                        tracing::debug!("FEC packet too short");
-                        continue;
-                    }
-
-                    let mut fec_slice: &[u8] = &payload[..lightspeed_protocol::FEC_HEADER_SIZE];
-                    let fec_hdr = match lightspeed_protocol::FecHeader::decode(&mut fec_slice) {
-                        Some(h) => h,
-                        None => {
-                            tracing::debug!("Invalid FEC header in response");
-                            continue;
-                        }
-                    };
-
-                    let game_data = &payload[lightspeed_protocol::FEC_HEADER_SIZE..];
-
                     if let Some(decoder) = fec_decoder.as_mut() {
-                        if fec_hdr.is_parity() {
-                            let parity_data = bytes::Bytes::copy_from_slice(game_data);
-                            if let Some((_idx, recovered)) =
-                                decoder.receive_parity(&fec_hdr, parity_data)
-                            {
-                                injector_stats_ref
-                                    .fec_recovered
-                                    .fetch_add(1, Ordering::Relaxed);
-                                tracing::info!(
-                                    block = fec_hdr.block_id,
-                                    recovered_len = recovered.len(),
-                                    "🔧 FEC recovered lost packet"
-                                );
-                                Some(recovered)
-                            } else {
-                                None // Parity consumed, no recovery needed
-                            }
-                        } else {
-                            let data_bytes = bytes::Bytes::copy_from_slice(game_data);
-                            decoder.receive_data(&fec_hdr, data_bytes.clone());
-                            Some(data_bytes)
-                        }
+                        decode_fec_payload(payload, decoder)
                     } else {
                         None
                     }
@@ -644,38 +621,25 @@ async fn run_capture_mode_inner(
                     .as_micros() as u32;
 
                 if let Some(ref mut encoder) = fec_encoder {
-                    // FEC mode: wrap with FEC header
                     let block_id = encoder.block_id();
                     let index = encoder.current_index();
-
                     let header =
                         lightspeed_protocol::TunnelHeader::new_fec(seq, ts, pkt.src, pkt.dst);
                     let fec_hdr = FecHeader::data(block_id, index, fec_k);
-
-                    let mut pkt_buf =
-                        BytesMut::with_capacity(HEADER_SIZE + FEC_HEADER_SIZE + pkt.payload.len());
-                    pkt_buf.extend_from_slice(&header.encode_to_array());
-                    fec_hdr.encode(&mut pkt_buf);
-                    pkt_buf.extend_from_slice(&pkt.payload);
-
+                    let pkt_buf = build_fec_data_packet(&header, &fec_hdr, &pkt.payload);
                     let parity = encoder.add_packet(&pkt.payload);
                     let _ = tunnel_socket.send_to(&pkt_buf, proxy_addr).await;
 
-                    // Send parity when block completes
                     if let Some(parity_bytes) = parity {
                         let parity_seq = seq.wrapping_add(1);
                         let parity_header = lightspeed_protocol::TunnelHeader::new_fec(
                             parity_seq, ts, pkt.src, pkt.dst,
                         );
                         let parity_fec = FecHeader::parity(block_id, fec_k);
-                        let mut parity_buf = BytesMut::with_capacity(
-                            HEADER_SIZE + FEC_HEADER_SIZE + parity_bytes.len(),
-                        );
-                        parity_buf.extend_from_slice(&parity_header.encode_to_array());
-                        parity_fec.encode(&mut parity_buf);
-                        parity_buf.extend_from_slice(&parity_bytes);
+                        let parity_buf =
+                            build_fec_parity_packet(&parity_header, &parity_fec, &parity_bytes);
                         let _ = tunnel_socket.send_to(&parity_buf, proxy_addr).await;
-                        seq = seq.wrapping_add(1); // extra seq for parity
+                        seq = seq.wrapping_add(1);
                     }
                 } else {
                     // Non-FEC: simple tunnel header + payload
