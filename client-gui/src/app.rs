@@ -29,7 +29,7 @@ use tray_icon::{
 /// (addr, label, recommended-for hint)
 /// Populated at runtime from LIGHTSPEED_PROXIES env var or falls back to placeholders.
 /// Set LIGHTSPEED_PROXIES='["YOUR_IP:4434","YOUR_IP_2:4434"]' to configure.
-const DEFAULT_PROXIES: &[(&str, &str, &str)] = &[
+const PROXIES: &[(&str, &str, &str)] = &[
     (
         "YOUR_LAX_IP:4434",
         "LAX — US West",

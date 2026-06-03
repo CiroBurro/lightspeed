@@ -2630,7 +2630,6 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
- "socket2 0.5.10",
  "thiserror 1.0.69",
  "tokio",
  "tokio-test",
@@ -2680,14 +2679,12 @@ dependencies = [
  "criterion",
  "libc",
  "lightspeed-protocol",
- "prometheus",
  "quinn",
  "rand 0.8.5",
  "rcgen",
  "rustls",
  "serde",
  "serde_json",
- "socket2 0.5.10",
  "thiserror 1.0.69",
  "tokio",
  "tokio-test",
@@ -3711,21 +3708,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eb8486b569e12e2c32ad3e204dbaba5e4b5b216e9367044f25f1dba42341773"
 
 [[package]]
-name = "prometheus"
-version = "0.13.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d33c28a30771f7f96db69893f78b857f7450d7e0237e9c8fc6427a81bae7ed1"
-dependencies = [
- "cfg-if",
- "fnv",
- "lazy_static",
- "memchr",
- "parking_lot",
- "protobuf",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "proptest"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3743,12 +3725,6 @@ dependencies = [
  "tempfile",
  "unarray",
 ]
-
-[[package]]
-name = "protobuf"
-version = "2.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
 name = "pxfm"

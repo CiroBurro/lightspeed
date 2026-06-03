@@ -20,7 +20,6 @@ full = ["quic"]
 [dependencies]
 lightspeed-protocol.workspace = true
 tokio.workspace = true
-socket2.workspace = true
 bytes.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -30,7 +29,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
-prometheus.workspace = true
 chrono.workspace = true
 rand = "0.8"
 
