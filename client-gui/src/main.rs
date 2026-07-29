@@ -1,29 +1,31 @@
-//! LightSpeed GUI — Windows tray icon + egui status window.
+//! LightSpeed GUI — system-tray icon + egui status window.
 //!
-//! On non-Windows platforms this binary immediately prints a message and exits
-//! with code 1, so it can be compiled cross-platform but should only be
-//! installed on Windows.
+//! Cross-platform via the `platform` module (Windows tray-icon with
+//! `tray_icon`, Linux stub).
 
-#[cfg(windows)]
 mod app;
+mod platform;
+
+use eframe::egui;
+use std::sync::{Arc, Mutex};
 
 fn main() -> anyhow::Result<()> {
-    windows_main()
-}
-
-#[cfg(windows)]
-fn windows_main() -> anyhow::Result<()> {
-    use eframe::egui;
-    use std::sync::{Arc, Mutex};
 
     // Redirect tracing to a file since GUI apps have no console.
     // Use a simple file appender for straightforward single-file logging.
+    let path = dirs::data_local_dir()
+        .unwrap_or_default()
+        .join("Lightspeed")
+        .join("gui-trace.log");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("Failed to create log directory");
+    }
     let file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("C:\\Users\\User\\ls-gui-trace.log")
+        .open(path)
         .expect("Failed to open log file");
-    let file_appender = std::sync::Mutex::new(file);
+    let file_appender = Mutex::new(file);
     tracing_subscriber::fmt()
         .with_target(false)
         .compact()
@@ -43,8 +45,8 @@ fn windows_main() -> anyhow::Result<()> {
     )));
 
     // Connect to the proxy configured via LIGHTSPEED_PROXY env var.
-    let proxy_addr = std::env::var("LIGHTSPEED_PROXY")
-        .unwrap_or_else(|_| "127.0.0.1:4434".to_string());
+    let proxy_addr =
+        std::env::var("LIGHTSPEED_PROXY").unwrap_or_else(|_| "127.0.0.1:4434".to_string());
     let proxy: std::net::SocketAddrV4 = proxy_addr.parse().unwrap();
     engine.lock().unwrap().connect(proxy);
 
@@ -60,10 +62,10 @@ fn windows_main() -> anyhow::Result<()> {
     eframe::run_native(
         "⚡ LightSpeed",
         native_options,
-        Box::new(move |_cc| {
-            Ok(Box::new(app::LightSpeedApp::new(Arc::clone(
-                &engine_for_closure,
-            ))))
+        Box::new(move |_cc: &eframe::CreationContext<'_>| {
+            Ok(Box::new(app::LightSpeedApp::<platform::CurrentPlatform>::new(
+                Arc::clone(&engine_for_closure),
+            )))
         }),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {}", e))?;
@@ -71,10 +73,4 @@ fn windows_main() -> anyhow::Result<()> {
     engine.lock().unwrap().disconnect();
     rt.shutdown_timeout(std::time::Duration::from_secs(2));
     Ok(())
-}
-
-#[cfg(not(windows))]
-fn windows_main() -> anyhow::Result<()> {
-    eprintln!("lightspeed-gui is Windows-only. Use the `lightspeed` CLI on this platform.");
-    std::process::exit(1);
 }

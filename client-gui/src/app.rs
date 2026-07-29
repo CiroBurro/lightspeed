@@ -1,51 +1,77 @@
-//! egui application + Windows tray icon for LightSpeed GUI.
+//! # LightSpeed GUI — App
 //!
-//! This module is only compiled on Windows (`#[cfg(windows)]` in main.rs).
+//! Main egui application state, UI layout, and pure helper functions.
+//! Wraps [`LightSpeedEngine`] in a platform-generic `<P: Platform>` struct
+//! so the same GUI code works on Windows (tray-icon) and Linux (stub tray).
 
 use std::net::SocketAddrV4;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::platform::{self, Platform, TrayAction, TrayHandle};
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
 
 // ── Tray state enum ──────────────────────────────────────────────────────────
 
+/// The four states the tray icon can reflect in its color and tooltip.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum TrayState {
+pub enum TrayState {
     Disconnected,
     Connected,
     Optimizing,
     Error,
 }
 use lightspeed_client::{EngineStatus, LightSpeedEngine};
-use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
-    TrayIcon, TrayIconBuilder, TrayIconEvent,
-};
 
 // ── Proxy nodes ────────────────────────────────────────────────────────────
 
-/// (addr, label, recommended-for hint)
-/// Populated at runtime from LIGHTSPEED_PROXIES env var or falls back to placeholders.
-/// Set LIGHTSPEED_PROXIES='["YOUR_IP:4434","YOUR_IP_2:4434"]' to configure.
-const PROXIES: &[(&str, &str, &str)] = &[
-    (
-        "YOUR_LAX_IP:4434",
-        "LAX — US West",
-        "Best for NA/EU servers",
-    ),
-    (
-        "YOUR_SGP_IP:4434",
-        "SGP — Singapore",
-        "Best for SEA/AU servers",
-    ),
-];
+/// A proxy relay node the user can connect to.
+#[derive(Clone)]
+pub struct ProxyEntry {
+    pub addr: SocketAddrV4,
+    pub label: String,
+}
+
+/// Loaded from `LIGHTSPEED_PROXIES` env var (comma-separated `addr:port`)
+/// or falls back to localhost placeholders.
+///   LIGHTSPEED_PROXIES="1.2.3.4:4434,5.6.7.8:4434"
+pub fn load_proxies() -> Vec<ProxyEntry> {
+    if let Ok(val) = std::env::var("LIGHTSPEED_PROXIES") {
+        let proxies: Vec<_> = val
+            .split(',')
+            .filter_map(|s| {
+                let s = s.trim();
+                if s.is_empty() {
+                    return None;
+                }
+                match s.parse::<SocketAddrV4>() {
+                    Ok(addr) => Some(ProxyEntry {
+                        addr,
+                        label: "Custom".into(),
+                    }),
+                    Err(_) => {
+                        tracing::warn!("Skipping invalid proxy address: {s}");
+                        None
+                    }
+                }
+            })
+            .collect();
+        if !proxies.is_empty() {
+            return proxies;
+        }
+        tracing::warn!("LIGHTSPEED_PROXIES set but no valid addresses found — using defaults");
+    }
+    vec![
+        ProxyEntry { addr: "127.0.0.1:4434".parse().expect("valid"), label: "LAX — US West".into() },
+        ProxyEntry { addr: "127.0.0.1:4434".parse().expect("valid"), label: "SGP — Singapore".into() },
+    ]
+}
 
 // ── Game list ──────────────────────────────────────────────────────────────
 
 /// (key, display name, default port)
-const GAMES: &[(&str, &str, u16)] = &[
+pub const GAMES: &[(&str, &str, u16)] = &[
     ("rust", "Rust (Facepunch)", 28015),
     ("fortnite", "Fortnite", 7777),
     ("cs2", "Counter-Strike 2", 27015),
@@ -57,32 +83,26 @@ const GAMES: &[(&str, &str, u16)] = &[
     ("pubg", "PUBG: Battlegrounds", 7777),
 ];
 
-// ── Tray menu item IDs ──────────────────────────────────────────────────────
-
-const MENU_SHOW: &str = "show";
-const MENU_CONNECT: &str = "connect";
-const MENU_DISCONNECT: &str = "disconnect";
-const MENU_QUIT: &str = "quit";
-
 // ── App struct ───────────────────────────────────────────────────────────────
 
-pub struct LightSpeedApp {
+/// Platform-generic egui application for the LightSpeed status window.
+///
+/// Type parameter `P` selects the platform backend (Windows tray or Linux
+/// stub).  Most of the UI logic is platform-independent — only the tray
+/// interaction, font loading, port detection, and admin checks delegate to
+/// `P`.
+pub struct LightSpeedApp<P: Platform> {
     engine: Arc<Mutex<LightSpeedEngine>>,
     status: EngineStatus,
-    tray: TrayIcon,
-    last_tray_state: TrayState,
-    fonts_setup: bool,
-
-    // ── Tray menu IDs ─────────────────────────────────────────────────────
-    id_show: tray_icon::menu::MenuId,
-    id_connect: tray_icon::menu::MenuId,
-    id_disconnect: tray_icon::menu::MenuId,
-    id_quit: tray_icon::menu::MenuId,
+    tray: P::Tray,
 
     // ── Proxy connection ─────────────────────────────────────────────────
     selected_proxy_idx: usize,
     show_connect_dialog: bool,
     custom_proxy_input: String,
+    show_proxy_manager: bool,
+    manager_label_input: String,
+    manager_addr_input: String,
 
     // ── Game routing ──────────────────────────────────────────────────────
     selected_game_idx: usize,
@@ -91,26 +111,22 @@ pub struct LightSpeedApp {
     auto_detected_game: Option<String>,
 
     // ── System state ──────────────────────────────────────────────────────
-    #[allow(dead_code)]
-    npcap_installed: bool,
     is_admin: bool,
+    fonts_setup: bool,
 
     // ── Advanced panel toggle ─────────────────────────────────────────────
-    /// True = "Advanced" expander is open (shows manual server IP input).
     show_advanced: bool,
 
-    // ── WinDivert diagnostics ─────────────────────────────────────────────
-    /// Wall-clock time when the current WinDivert boost session started.
-    /// Used to show a "port mismatch?" warning if no packets are seen after 15 s.
+    // ── Boost diagnostics ─────────────────────────────────────────────────
     boost_start: Option<std::time::Instant>,
-    /// Optional user-supplied port range override (e.g. "28015-28999").
-    /// When non-empty and parseable it overrides `windivert_port_range()`.
     custom_port_input: String,
+
+    proxies: Vec<ProxyEntry>,
 }
 
-impl LightSpeedApp {
+impl<P: Platform> LightSpeedApp<P> {
     pub fn new(engine: Arc<Mutex<LightSpeedEngine>>) -> Self {
-        let (tray, id_show, id_connect, id_disconnect, id_quit) = build_tray();
+        let tray = P::new_tray();
         let status = engine.lock().unwrap().snapshot();
 
         let auto_detected_game = try_auto_detect_game();
@@ -123,202 +139,60 @@ impl LightSpeedApp {
             })
             .unwrap_or(0);
 
-        let npcap_installed = check_npcap();
-        let is_admin = check_is_admin();
+        let is_admin = P::is_admin();
+
+        let proxies = load_proxies();
 
         Self {
             engine,
             status,
             tray,
-            last_tray_state: TrayState::Disconnected,
-            fonts_setup: false,
-            id_show,
-            id_connect,
-            id_disconnect,
-            id_quit,
             selected_proxy_idx: 0,
             show_connect_dialog: false,
             custom_proxy_input: String::new(),
+            show_proxy_manager: false,
+            manager_label_input: String::new(),
+            manager_addr_input: String::new(),
             selected_game_idx,
             server_input: String::new(),
             fec_enabled: false,
             auto_detected_game,
-            npcap_installed,
             is_admin,
+            fonts_setup: false,
             show_advanced: false,
             boost_start: None,
             custom_port_input: String::new(),
+            proxies,
         }
     }
 
     fn selected_proxy_addr(&self) -> SocketAddrV4 {
-        PROXIES[self.selected_proxy_idx]
-            .0
-            .parse()
-            .expect("proxy addr is always valid")
+        self.proxies[self.selected_proxy_idx].addr
     }
-}
-
-// ── Tray builder ─────────────────────────────────────────────────────────────
-
-fn build_tray() -> (
-    TrayIcon,
-    tray_icon::menu::MenuId,
-    tray_icon::menu::MenuId,
-    tray_icon::menu::MenuId,
-    tray_icon::menu::MenuId,
-) {
-    let item_show = MenuItem::with_id(MENU_SHOW, "Show window", true, None);
-    let item_connect = MenuItem::with_id(MENU_CONNECT, "Connect", true, None);
-    let item_disconnect = MenuItem::with_id(MENU_DISCONNECT, "Disconnect", true, None);
-    let item_quit = MenuItem::with_id(MENU_QUIT, "Quit", true, None);
-
-    let id_show = item_show.id().clone();
-    let id_connect = item_connect.id().clone();
-    let id_disconnect = item_disconnect.id().clone();
-    let id_quit = item_quit.id().clone();
-
-    let menu = Menu::new();
-    let _ = menu.append(&item_show);
-    let _ = menu.append(&PredefinedMenuItem::separator());
-    let _ = menu.append(&item_connect);
-    let _ = menu.append(&item_disconnect);
-    let _ = menu.append(&PredefinedMenuItem::separator());
-    let _ = menu.append(&item_quit);
-
-    // Start gray (disconnected) — will update on first frame via tray state machine.
-    let icon = lightning_icon(160, 160, 160);
-
-    let tray = TrayIconBuilder::new()
-        .with_menu(Box::new(menu))
-        .with_tooltip("\u{26a1} LightSpeed \u{2014} disconnected")
-        .with_icon(icon)
-        .build()
-        .expect("Failed to create tray icon");
-
-    (tray, id_show, id_connect, id_disconnect, id_quit)
-}
-
-/// Procedurally rasterise a ⚡ lightning-bolt silhouette into a 32×32 RGBA icon.
-///
-/// Uses a 6-vertex non-convex polygon (ray-casting fill) so no image crate is needed.
-/// `(r, g, b)` sets the bolt colour; background is transparent.
-fn lightning_icon(r: u8, g: u8, b: u8) -> tray_icon::Icon {
-    const SIZE: usize = 32;
-    // Bolt polygon: 6 vertices, clockwise, y-increasing downwards, normalised [0,1].
-    // Vertex sequence traces the ⚡ outline: top → mid-left → inner-jog → bottom → mid-right → inner-jog.
-    let poly: [(f32, f32); 6] = [
-        (0.55, 0.02), // top
-        (0.18, 0.48), // mid-left
-        (0.50, 0.48), // inner concave corner (step right)
-        (0.10, 0.98), // bottom-left tip
-        (0.82, 0.52), // mid-right
-        (0.50, 0.52), // inner concave corner (step left)
-    ];
-
-    let mut rgba = vec![0u8; SIZE * SIZE * 4];
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let px = (x as f32 + 0.5) / SIZE as f32;
-            let py = (y as f32 + 0.5) / SIZE as f32;
-            if point_in_poly(px, py, &poly) {
-                let idx = (y * SIZE + x) * 4;
-                rgba[idx] = r;
-                rgba[idx + 1] = g;
-                rgba[idx + 2] = b;
-                rgba[idx + 3] = 255;
-            }
-        }
-    }
-    tray_icon::Icon::from_rgba(rgba, SIZE as u32, SIZE as u32)
-        .expect("Failed to build tray icon from RGBA data")
-}
-
-/// Ray-casting point-in-polygon test (works for non-convex simple polygons).
-fn point_in_poly(px: f32, py: f32, poly: &[(f32, f32)]) -> bool {
-    let n = poly.len();
-    let mut inside = false;
-    let mut j = n - 1;
-    for i in 0..n {
-        let (xi, yi) = poly[i];
-        let (xj, yj) = poly[j];
-        if ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
-}
-
-/// Load Segoe UI Emoji (and Symbol) from the Windows Fonts directory as egui fallback fonts.
-///
-/// Called once on first frame. Silently skipped if the files are absent (older OS / CI).
-/// Text still renders correctly using egui's bundled Ubuntu-Light; the system emoji font
-/// adds coverage for glyphs like 🎮 🟢 🪄 🔑 ✅ that are absent from the bundled subset.
-fn setup_fonts(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-
-    // Segoe UI Emoji — full Unicode 14+ colour/monochrome emoji (Windows 10/11).
-    if let Ok(bytes) = std::fs::read(r"C:\Windows\Fonts\seguiemj.ttf") {
-        fonts
-            .font_data
-            .insert("seguiemj".to_owned(), egui::FontData::from_owned(bytes));
-        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-            fonts
-                .families
-                .entry(family)
-                .or_default()
-                .push("seguiemj".to_owned());
-        }
-    }
-
-    // Segoe UI Symbol — BMP symbol coverage (⚡ ⚠ ▶ ■ ● ℹ ↗ etc.).
-    if let Ok(bytes) = std::fs::read(r"C:\Windows\Fonts\seguisym.ttf") {
-        fonts
-            .font_data
-            .insert("seguisym".to_owned(), egui::FontData::from_owned(bytes));
-        fonts
-            .families
-            .entry(egui::FontFamily::Proportional)
-            .or_default()
-            .push("seguisym".to_owned());
-    }
-
-    ctx.set_fonts(fonts);
 }
 
 // ── eframe::App impl ─────────────────────────────────────────────────────────
 
-impl eframe::App for LightSpeedApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // One-time first-frame setup: emoji font fallback.
+impl<P: Platform> eframe::App for LightSpeedApp<P> {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
+        // One-time first-frame setup: platform-specific fonts.
         if !self.fonts_setup {
             self.fonts_setup = true;
-            setup_fonts(ctx);
+            P::setup_fonts(&ctx);
         }
 
-        // ── Poll tray/menu events each frame ─────────────────────────────
-        // Using receiver() instead of set_event_handler() so events are
-        // delivered correctly even when running as Administrator (UIPI
-        // blocks callback-based messages from Explorer at medium IL).
-        while let Ok(event) = MenuEvent::receiver().try_recv() {
-            tracing::debug!("Tray menu event: {:?}", event.id);
-            if event.id == self.id_show {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            } else if event.id == self.id_connect {
-                let proxy = self.selected_proxy_addr();
-                self.engine.lock().unwrap().connect(proxy);
-            } else if event.id == self.id_disconnect {
-                self.engine.lock().unwrap().disconnect();
-            } else if event.id == self.id_quit {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-        }
-        while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            if matches!(event, TrayIconEvent::DoubleClick { .. }) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        // ── Poll tray events ─────────────────────────────────────────────
+        for action in self.tray.poll_events(&ctx) {
+            match action {
+                TrayAction::Connect => {
+                    let proxy = self.selected_proxy_addr();
+                    self.engine.lock().unwrap().connect(proxy);
+                }
+                TrayAction::Disconnect => {
+                    self.engine.lock().unwrap().disconnect();
+                }
             }
         }
 
@@ -352,30 +226,12 @@ impl eframe::App for LightSpeedApp {
                 TrayState::Disconnected
             };
 
-            if new_tray_state != self.last_tray_state {
-                self.last_tray_state = new_tray_state;
-                let (r, g, b): (u8, u8, u8) = match new_tray_state {
-                    TrayState::Disconnected => (160, 160, 160), // gray
-                    TrayState::Connected => (255, 200, 60),     // amber
-                    TrayState::Optimizing => (80, 210, 120),    // green
-                    TrayState::Error => (220, 80, 80),          // red
-                };
-                let tooltip: String = match new_tray_state {
-                    TrayState::Disconnected => "\u{26a1} LightSpeed \u{2014} disconnected".into(),
-                    TrayState::Connected => format!(
-                        "\u{26a1} LightSpeed \u{2014} connected \u{00b7} RTT {:.0}ms",
-                        self.status.latest_rtt_ms
-                    ),
-                    TrayState::Optimizing => "\u{26a1} LightSpeed \u{2014} optimizing".into(),
-                    TrayState::Error => "\u{26a1} LightSpeed \u{2014} error".into(),
-                };
-                let _ = self.tray.set_icon(Some(lightning_icon(r, g, b)));
-                let _ = self.tray.set_tooltip(Some(&tooltip));
-            }
+            self.tray
+                .set_state(new_tray_state, self.status.latest_rtt_ms);
         }
 
         // ── Main panel ────────────────────────────────────────────────────
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             // ── Header ───────────────────────────────────────────────────
             ui.horizontal(|ui| {
                 ui.heading("⚡ LightSpeed");
@@ -402,13 +258,16 @@ impl eframe::App for LightSpeedApp {
                             "https://github.com/ShibbityShwab/lightspeed/wiki/Choosing-a-Boost-Server");
                     });
                 let prev = self.selected_proxy_idx;
-                for (i, (_, label, hint)) in PROXIES.iter().enumerate() {
-                    let btn = ui.selectable_value(&mut self.selected_proxy_idx, i, *label);
-                    btn.on_hover_text(*hint);
+                for (i, entry) in self.proxies.iter().enumerate() {
+                    let btn = ui.selectable_value(&mut self.selected_proxy_idx, i, &entry.label);
+                    btn.on_hover_text(format!("{}", entry.addr));
                 }
                 if self.selected_proxy_idx != prev {
                     let proxy = self.selected_proxy_addr();
                     self.engine.lock().unwrap().connect(proxy);
+                }
+                if ui.button("✎ Manage").clicked() {
+                    self.show_proxy_manager = true;
                 }
             });
 
@@ -449,9 +308,8 @@ impl eframe::App for LightSpeedApp {
                     .enumerate()
                     .map(|(i, &v)| [i as f64, v])
                     .collect();
-                let line = Line::new(points)
-                    .color(egui::Color32::from_rgb(100, 180, 255))
-                    .name("RTT (ms)");
+                let line = Line::new("RTT (ms)", points)
+                    .color(egui::Color32::from_rgb(100, 180, 255));
                 Plot::new("rtt_plot")
                     .height(80.0)
                     .allow_drag(false)
@@ -468,12 +326,6 @@ impl eframe::App for LightSpeedApp {
             // ── Game Routing section ──────────────────────────────────────
             ui.heading("🎮 Game Routing");
             ui.add_space(4.0);
-
-            let any_active =
-                self.status.redirect_active
-                    || self.status.capture_active
-                    || self.status.windivert_active
-                    || self.status.interceptor_active;
 
             if self.status.interceptor_active {
                 // ── BOOST ENGAGED (OOP Interceptor) state ──────────────────────
@@ -527,9 +379,9 @@ impl eframe::App for LightSpeedApp {
 
                     if elapsed < 15 {
                         // First 15 s: friendly "finding server" indicator.
-                        egui::Frame::none()
+                        egui::Frame::new()
                             .fill(egui::Color32::from_rgb(20, 30, 45))
-                            .rounding(4.0)
+                            .corner_radius(4.0)
                             .inner_margin(8.0)
                             .show(ui, |ui: &mut egui::Ui| {
                                 ui.colored_label(
@@ -544,10 +396,10 @@ impl eframe::App for LightSpeedApp {
                     } else {
                         // 15 s+ with no packets → likely port mismatch — amber warning.
                         let (lo, hi) = parse_custom_port_range(&self.custom_port_input)
-                            .unwrap_or_else(|| windivert_port_range(self.selected_game_idx));
-                        egui::Frame::none()
+                            .unwrap_or_else(|| platform::default_port_range(self.selected_game_idx));
+                        egui::Frame::new()
                             .fill(egui::Color32::from_rgb(55, 40, 8))
-                            .rounding(4.0)
+                            .corner_radius(4.0)
                             .inner_margin(8.0)
                             .show(ui, |ui: &mut egui::Ui| {
                                 ui.colored_label(
@@ -567,9 +419,9 @@ impl eframe::App for LightSpeedApp {
                             });
                     }
                 } else {
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(egui::Color32::from_rgb(25, 40, 15))
-                        .rounding(4.0)
+                        .corner_radius(4.0)
                         .inner_margin(8.0)
                         .show(ui, |ui: &mut egui::Ui| {
                             ui.colored_label(
@@ -640,7 +492,7 @@ impl eframe::App for LightSpeedApp {
                         format!("⚠ Drops: {}", self.status.windivert_errors),
                     )
                     .on_hover_ui(|ui| {
-                        ui.label("Packets that couldn't be delivered back to your game.\n\
+                        ui.label("Packet that couldn't be delivered back to your game.\n\
                                   Usually a firewall issue — see Troubleshooting.");
                         ui.hyperlink_to("📖 Fix Drops",
                             "https://github.com/ShibbityShwab/lightspeed/wiki/Troubleshooting#packets-sent-climbing-packets-delivered-0");
@@ -656,9 +508,9 @@ impl eframe::App for LightSpeedApp {
 
                     if elapsed < 15 {
                         // First 15 s: friendly "finding server" indicator.
-                        egui::Frame::none()
+                        egui::Frame::new()
                             .fill(egui::Color32::from_rgb(20, 30, 45))
-                            .rounding(4.0)
+                            .corner_radius(4.0)
                             .inner_margin(8.0)
                             .show(ui, |ui: &mut egui::Ui| {
                                 ui.colored_label(
@@ -673,10 +525,10 @@ impl eframe::App for LightSpeedApp {
                     } else {
                         // 15 s+ with no packets → likely port mismatch — amber warning.
                         let (lo, hi) = parse_custom_port_range(&self.custom_port_input)
-                            .unwrap_or_else(|| windivert_port_range(self.selected_game_idx));
-                        egui::Frame::none()
+                            .unwrap_or_else(|| platform::default_port_range(self.selected_game_idx));
+                        egui::Frame::new()
                             .fill(egui::Color32::from_rgb(55, 40, 8))
-                            .rounding(4.0)
+                            .corner_radius(4.0)
                             .inner_margin(8.0)
                             .show(ui, |ui: &mut egui::Ui| {
                                 ui.colored_label(
@@ -696,9 +548,9 @@ impl eframe::App for LightSpeedApp {
                             });
                     }
                 } else {
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(egui::Color32::from_rgb(25, 40, 15))
-                        .rounding(4.0)
+                        .corner_radius(4.0)
                         .inner_margin(8.0)
                         .show(ui, |ui: &mut egui::Ui| {
                             ui.colored_label(
@@ -774,9 +626,9 @@ impl eframe::App for LightSpeedApp {
                 // Diagnostic: proxy working but no game packets seen yet.
                 if self.status.capture_pkts_in > 5 && self.status.capture_pkts_out == 0 {
                     ui.add_space(2.0);
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(egui::Color32::from_rgb(55, 44, 8))
-                        .rounding(4.0)
+                        .corner_radius(4.0)
                         .inner_margin(8.0)
                         .show(ui, |ui: &mut egui::Ui| {
                             ui.colored_label(
@@ -789,9 +641,9 @@ impl eframe::App for LightSpeedApp {
                 }
 
                 ui.add_space(4.0);
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(egui::Color32::from_rgb(20, 45, 30))
-                    .rounding(4.0)
+                    .corner_radius(4.0)
                     .inner_margin(8.0)
                     .show(ui, |ui: &mut egui::Ui| {
                         ui.colored_label(
@@ -867,9 +719,9 @@ impl eframe::App for LightSpeedApp {
                 ui.add_space(4.0);
                 let instruction =
                     connect_instruction(self.selected_game_idx, self.status.redirect_local_port);
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(egui::Color32::from_rgb(30, 50, 30))
-                    .rounding(4.0)
+                    .corner_radius(4.0)
                     .inner_margin(8.0)
                     .show(ui, |ui: &mut egui::Ui| {
                         ui.colored_label(egui::Color32::from_rgb(150, 255, 150), &instruction);
@@ -897,7 +749,6 @@ impl eframe::App for LightSpeedApp {
                 }
             } else {
                 // ── IDLE: single Optimize button ──────────────────────────
-                let _ = any_active;
 
                 // ── Game auto-detect banner ───────────────────────────────
                 if let Some(ref detected) = self.auto_detected_game {
@@ -966,11 +817,10 @@ impl eframe::App for LightSpeedApp {
                 ui.add_space(8.0);
 
                 // ── Method info strip ─────────────────────────────────────
-                // Show what backend will be used (no tabs — just informational).
                 if self.is_admin {
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(egui::Color32::from_rgb(20, 35, 50))
-                        .rounding(4.0)
+                        .corner_radius(4.0)
                         .inner_margin(8.0)
                         .show(ui, |ui: &mut egui::Ui| {
                             ui.horizontal(|ui| {
@@ -998,9 +848,9 @@ impl eframe::App for LightSpeedApp {
                         });
                 } else {
                     // Not admin — show restart nudge inline
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(egui::Color32::from_rgb(55, 40, 10))
-                        .rounding(4.0)
+                        .corner_radius(4.0)
                         .inner_margin(8.0)
                         .show(ui, |ui: &mut egui::Ui| {
                             ui.horizontal(|ui| {
@@ -1028,7 +878,7 @@ impl eframe::App for LightSpeedApp {
                                 )
                                 .clicked()
                             {
-                                relaunch_as_admin();
+                                P::relaunch_as_admin();
                             }
                         });
                 }
@@ -1070,10 +920,9 @@ impl eframe::App for LightSpeedApp {
                     .clicked()
                     && self.is_admin
                 {
-                    // Auto-pick best backend: WinDivert (kernel) is always preferred
-                    // when running as admin — no fallback needed.
+                    // Warm up port detection for diagnostic logging.
                     let _ = parse_custom_port_range(&self.custom_port_input)
-                            .unwrap_or_else(|| detect_windivert_port_range(self.selected_game_idx));
+                        .unwrap_or_else(|| P::detect_game_ports(self.selected_game_idx));
 
                     let game_key = GAMES[self.selected_game_idx].0;
                     let result = self.engine.lock().unwrap().start_interceptor(
@@ -1086,7 +935,6 @@ impl eframe::App for LightSpeedApp {
                         tracing::error!("start_interceptor failed: {}", e);
                     } else {
                         self.boost_start = Some(std::time::Instant::now());
-                        self.last_tray_state = TrayState::Connected; // force tray update
                     }
                 }
 
@@ -1111,9 +959,9 @@ impl eframe::App for LightSpeedApp {
 
                 if self.show_advanced {
                     ui.add_space(4.0);
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(egui::Color32::from_rgb(25, 25, 35))
-                        .rounding(4.0)
+                        .corner_radius(4.0)
                         .inner_margin(8.0)
                         .show(ui, |ui: &mut egui::Ui| {
                             ui.weak(
@@ -1246,7 +1094,7 @@ impl eframe::App for LightSpeedApp {
                 .resizable(false)
                 .collapsible(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     ui.label("Proxy address (ip:port):");
                     ui.text_edit_singleline(&mut self.custom_proxy_input);
                     ui.add_space(4.0);
@@ -1264,6 +1112,67 @@ impl eframe::App for LightSpeedApp {
                 });
         }
 
+        // ── Proxy manager window ─────────────────────────────────────────
+        if self.show_proxy_manager {
+            let mut remove_idx: Option<usize> = None;
+            let mut add_addr: Option<SocketAddrV4> = None;
+
+            egui::Window::new("Proxy Manager")
+                .resizable(false)
+                .collapsible(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(&ctx, |ui| {
+                    for (i, entry) in self.proxies.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}.", i + 1));
+                            ui.label(&entry.label);
+                            ui.label(entry.addr.to_string());
+                            if ui.button("✕").clicked() {
+                                remove_idx = Some(i);
+                            }
+                        });
+                    }
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label("Label:");
+                        ui.text_edit_singleline(&mut self.manager_label_input);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Addr:");
+                        ui.text_edit_singleline(&mut self.manager_addr_input);
+                    });
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Add Proxy").clicked() {
+                            if self.manager_addr_input.parse::<SocketAddrV4>().is_ok() {
+                                add_addr = Some(self.manager_addr_input.parse().unwrap());
+                            }
+                        }
+                        if ui.button("Close").clicked() {
+                            self.show_proxy_manager = false;
+                        }
+                    });
+                });
+
+            if let Some(idx) = remove_idx {
+                self.proxies.remove(idx);
+                if !self.proxies.is_empty() {
+                    self.selected_proxy_idx = self.selected_proxy_idx.min(self.proxies.len() - 1);
+                }
+            }
+            if let Some(addr) = add_addr {
+                let label = if self.manager_label_input.is_empty() {
+                    addr.to_string()
+                } else {
+                    self.manager_label_input.clone()
+                };
+                self.proxies.push(ProxyEntry { addr, label });
+                self.manager_label_input.clear();
+                self.manager_addr_input.clear();
+            }
+        }
+
         // ── Repaint schedule ─────────────────────────────────────────────
         let repaint_interval = if self.status.redirect_active
             || self.status.capture_active
@@ -1278,7 +1187,7 @@ impl eframe::App for LightSpeedApp {
     }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Pure helpers (no platform dependency) ─────────────────────────────────────
 
 fn rtt_colour(rtt_ms: f64) -> egui::Color32 {
     if rtt_ms < 60.0 {
@@ -1327,198 +1236,16 @@ fn try_auto_detect_game() -> Option<String> {
     }
 }
 
-/// Check if Npcap is installed on this Windows system.
-fn check_npcap() -> bool {
-    use std::process::Command;
-    Command::new("sc")
-        .args(["query", "npcap"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// Check if the current process is running as Administrator.
-fn check_is_admin() -> bool {
-    use std::process::Command;
-    // `net session` requires admin — succeeds if elevated, fails if not.
-    Command::new("net")
-        .args(["session"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// Determine the WinDivert port range for the selected game using real-time
-/// process inspection where available, with a wide static range as fallback.
-///
-/// For Rust, this calls `detect_rust_ports_netstat()` to find the actual UDP
-/// sockets open by `RustClient.exe` — so it works even on community servers
-/// that use completely non-standard ports.  For other games it delegates to
-/// `windivert_port_range()`.
-fn detect_windivert_port_range(game_idx: usize) -> (u16, u16) {
-    let (key, _, _) = GAMES[game_idx];
-    if key == "rust" {
-        if let Some(range) = detect_rust_ports_netstat() {
-            tracing::info!(
-                "🔍 RustClient.exe netstat-detected port range: {}-{}",
-                range.0,
-                range.1
-            );
-            return range;
-        }
-        tracing::debug!(
-            "RustClient.exe netstat detection failed — using wide fallback 28015-28999"
-        );
-    }
-    windivert_port_range(game_idx)
-}
-
 /// Known Steam-service UDP ports that RustClient.exe keeps open for
 /// Steam NAT punch / relay etc. — we skip these so the WinDivert filter
 /// doesn't intercept Steam traffic instead of game traffic.
-const STEAM_SERVICE_PORTS: &[u16] = &[
+pub const STEAM_SERVICE_PORTS: &[u16] = &[
     3478, 4379, 4380,  // Steam NAT punch / relay
     27005, // Steam client source
     27015, // Steam SRCDS / query
     27020, // Steam TV
     27036, 27037, // Steam Remote Play
 ];
-
-/// Detect the actual UDP port(s) that `RustClient.exe` is using by
-/// querying `netstat -ano` and cross-referencing with `tasklist`.
-///
-/// Returns `Some((lo, hi))` — the min/max of detected game ports with a
-/// small headroom window — or `None` if the process isn't found or has no
-/// relevant sockets.
-#[cfg(target_os = "windows")]
-fn detect_rust_ports_netstat() -> Option<(u16, u16)> {
-    use std::process::Command;
-
-    // ── Step 1: find PID of RustClient.exe ───────────────────────────────
-    let tl = Command::new("tasklist")
-        .args(["/FI", "IMAGENAME eq RustClient.exe", "/FO", "CSV", "/NH"])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&tl.stdout);
-    if text.trim().to_ascii_lowercase().starts_with("info:") || text.trim().is_empty() {
-        tracing::debug!("RustClient.exe not found in tasklist");
-        return None;
-    }
-    let pid: u32 = text
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split(',');
-            let _name = fields.next()?;
-            fields.next()?.trim().trim_matches('"').parse().ok()
-        })
-        .next()?;
-
-    tracing::debug!("RustClient.exe PID = {}", pid);
-
-    // ── Step 2: enumerate UDP endpoints owned by that PID ─────────────────
-    let ns = Command::new("netstat")
-        .args(["-ano", "-p", "UDP"])
-        .output()
-        .ok()?;
-
-    let pid_str = pid.to_string();
-    let mut ports: Vec<u16> = Vec::new();
-
-    for line in String::from_utf8_lossy(&ns.stdout).lines() {
-        // Windows netstat UDP output format:
-        // Column 0: Proto (UDP)
-        // Column 1: Local Address (your_ip:your_port)
-        // Column 2: Foreign Address (*:* or ip:port)
-        // Column 3: State (blank for UDP)
-        // Column 4: PID (if -o is used)
-        // Note: Sometimes Column 3 is missing in UDP output.
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 4 {
-            continue;
-        }
-        if !parts[0].eq_ignore_ascii_case("UDP") {
-            continue;
-        }
-
-        // Find PID - it's usually the last part
-        let line_pid = parts.last().unwrap_or(&"");
-        if *line_pid != pid_str {
-            continue;
-        }
-
-        // We want the FOREIGN port (the game server port), not our LOCAL port.
-        // For UDP, netstat -ano usually shows "*:*" for the foreign address
-        // until a packet is sent. If it's still "*:*", we have to fallback
-        // to our local port as a hint, or use the wide default.
-        let foreign_addr = parts[2];
-        if let Some(port_str) = foreign_addr.rsplit(':').next() {
-            if let Ok(port) = port_str.parse::<u16>() {
-                if port >= 1024 && !STEAM_SERVICE_PORTS.contains(&port) && !ports.contains(&port) {
-                    ports.push(port);
-                }
-            }
-        }
-
-        // If foreign port is unknown (*), check the local port.
-        // In some games, the local port matches the remote port (source=dest).
-        if ports.is_empty() {
-            if let Some(port_str) = parts[1].rsplit(':').next() {
-                if let Ok(port) = port_str.parse::<u16>() {
-                    if port >= 28015 && port <= 30000 && !ports.contains(&port) {
-                        ports.push(port);
-                    }
-                }
-            }
-        }
-    }
-
-    tracing::debug!(
-        "RustClient.exe (PID {}) candidate UDP ports: {:?}",
-        pid,
-        ports
-    );
-
-    if ports.is_empty() {
-        return None;
-    }
-
-    let lo = *ports.iter().min().unwrap();
-    let hi = *ports.iter().max().unwrap();
-    // Small headroom: ensure at least a 3-port window around the detected range.
-    Some((lo, hi.max(lo + 2)))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn detect_rust_ports_netstat() -> Option<(u16, u16)> {
-    None
-}
-
-/// Returns the WinDivert port range (lo, hi) for the selected game.
-///
-/// These match the game-server UDP port ranges used by each title.
-/// WinDivert opens a broad filter over the range and auto-detects the
-/// actual server from the first intercepted outbound packet.
-///
-/// Ranges are intentionally wide because community servers regularly use
-/// non-default ports.  The stale-server timeout (5 s) prevents locking on
-/// to wrong hosts even with a wide filter.
-fn windivert_port_range(game_idx: usize) -> (u16, u16) {
-    let (key, _, default_port) = GAMES[game_idx];
-    match key {
-        // Community Rust servers use any port in 28015–30000.
-        // Official Facepunch servers default to 28015.
-        "rust" => (28015, 30000),
-        // Source-engine games share the 27000 block; matchmaking,
-        // community, and dedicated server ports vary widely.
-        "cs2" => (27015, 27100),
-        "dota2" => (27015, 27100),
-        "valorant" => (7000, 7500),
-        "apex" => (37000, 37050),
-        "lol" => (5000, 5500),
-        "pubg" => (7777, 7843),
-        _ => (default_port, default_port),
-    }
-}
 
 /// Parse a user-supplied port range string.
 ///
@@ -1543,19 +1270,4 @@ fn parse_custom_port_range(s: &str) -> Option<(u16, u16)> {
         let p = s.parse::<u16>().ok()?;
         Some((p, p))
     }
-}
-
-/// Relaunch the current exe with elevated privileges via PowerShell UAC.
-fn relaunch_as_admin() {
-    let exe = std::env::current_exe()
-        .unwrap_or_default()
-        .display()
-        .to_string();
-    // Use Start-Process -Verb RunAs to show UAC prompt.
-    let script = format!("Start-Process '{}' -Verb RunAs", exe.replace('\'', "''"));
-    let _ = std::process::Command::new("powershell")
-        .args(["-WindowStyle", "Hidden", "-Command", &script])
-        .spawn();
-    // Exit current (unelevated) process — the new elevated one will start.
-    std::process::exit(0);
 }
