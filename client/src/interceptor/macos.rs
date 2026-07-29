@@ -126,11 +126,10 @@ impl TrafficInterceptor for PfInterceptor {
         }
 
         // ── Sockets ───────────────────────────────────────────────────────
-        let tunnel_socket = Arc::new(
-            tokio::runtime::Handle::current()
-                .block_on(UdpSocket::bind("0.0.0.0:0"))
-                .map_err(|e| anyhow::anyhow!("Tunnel socket bind: {e}"))?,
-        );
+        let tunnel_std = std::net::UdpSocket::bind("0.0.0.0:0")
+            .map_err(|e| anyhow::anyhow!("Tunnel socket bind: {e}"))?;
+        tunnel_std.set_nonblocking(true)?;
+        let tunnel_socket = Arc::new(UdpSocket::from_std(tunnel_std)?);
 
         listener_std.set_nonblocking(true)?;
         let listener_socket = Arc::new(UdpSocket::from_std(listener_std)?);

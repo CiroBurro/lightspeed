@@ -451,11 +451,10 @@ impl TrafficInterceptor for WinDivertInterceptor {
             let counters_ka = Arc::clone(&counters);
             let _running_t = Arc::clone(&running);
 
-            let tunnel_socket = Arc::new(
-                tokio::runtime::Handle::current()
-                    .block_on(UdpSocket::bind("0.0.0.0:0"))
-                    .map_err(|e| anyhow::anyhow!("Tunnel socket bind failed: {e}"))?,
-            );
+            let tunnel_std = std::net::UdpSocket::bind("0.0.0.0:0")
+                .map_err(|e| anyhow::anyhow!("Tunnel socket bind failed: {e}"))?;
+            tunnel_std.set_nonblocking(true)?;
+            let tunnel_socket = Arc::new(UdpSocket::from_std(tunnel_std)?);
             tracing::info!("✅ Tunnel UDP socket created");
             let tunnel_port = tunnel_socket
                 .local_addr()

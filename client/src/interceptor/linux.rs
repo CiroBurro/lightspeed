@@ -118,11 +118,12 @@ impl TrafficInterceptor for NftablesInterceptor {
         }
 
         // ── Tunnel socket (to/from proxy) ─────────────────────────────────
-        let tunnel_socket = Arc::new(
-            tokio::runtime::Handle::current()
-                .block_on(UdpSocket::bind("0.0.0.0:0"))
-                .map_err(|e| anyhow::anyhow!("Tunnel socket bind: {e}"))?,
-        );
+        // Bind a std socket first, then convert to tokio — avoids block_on
+        // which panics if called from within an existing async runtime.
+        let tunnel_std = std::net::UdpSocket::bind("0.0.0.0:0")
+            .map_err(|e| anyhow::anyhow!("Tunnel socket bind: {e}"))?;
+        tunnel_std.set_nonblocking(true)?;
+        let tunnel_socket = Arc::new(UdpSocket::from_std(tunnel_std)?);
 
         // Convert the std socket to a tokio async socket
         listener_std.set_nonblocking(true)?;
