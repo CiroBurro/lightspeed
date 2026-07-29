@@ -444,3 +444,43 @@ The first release of LightSpeed — a zero-cost, open-source global network opti
 [0.3.0]: https://github.com/ShibbityShwab/lightspeed/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ShibbityShwab/lightspeed/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ShibbityShwab/lightspeed/releases/tag/v0.1.0
+
+## [0.4.2] — 2026-07-29
+
+### Linux Interceptor (WF-010—WF-013)
+- **Port-range fallback**: Interceptor now starts without a pre-discovered game server route. Uses nftables `udp dport {range}` match when game isn't running.
+- **SO_ORIGINAL_DST recovery**: Retrieves real destination address from netfilter-redirected packets via `getsockopt(fd, SOL_IP, SO_ORIGINAL_DST)`.
+- **MockInterceptor**: In-memory `TrafficInterceptor` for CI testing — no root needed.
+- **block_on panic fix**: Replaced `tokio::runtime::Handle::block_on` with `std::net::UdpSocket` bind in all three interceptor backends.
+
+### CLI
+- `--intercept` — diagnostic mode: shows backend, availability, discovered routes
+- `--scan-processes` — ProcessScanner debug: find game processes and UDP routes
+- `--start-interceptor` — live MITM mode with graceful Ctrl+C shutdown
+- `--server-addr` — override game server for testing without a running game
+- `--list-games` — display all 9 supported games with ports and process names
+- `--write-config` — generate a documented `lightspeed.toml` template
+- `--check` — environment validation: interceptor, root, game, proxy reachability
+
+### Dependencies
+- linfa-linear 0.7→0.8, ndarray 0.15→0.16 (fix PR #14 regression)
+- bytes 1→1.12, tracing-subscriber 0.3→0.3.23, rand 0.8→0.9, thiserror 1→2
+- libc 0.2 (Linux-only, for SO_ORIGINAL_DST)
+
+### Cross-Platform GUI (PR #20 — @CiroBurro)
+- `Platform` trait abstracts OS-specific code (tray, fonts, port detection, admin)
+- `LinuxPlatform` (156 LoC): stub tray, Noto Color Emoji, pgrep+ss, pkexec
+- `WindowsPlatform` (317 LoC): full tray icon, Segoe UI Emoji, Npcap, UAC
+- Proxy Manager UI: add/remove/list proxies at runtime
+- Fix: hardcoded log path crash → `dirs::data_local_dir()`
+- Fix: placeholder IP crash → `LIGHTSPEED_PROXIES` env var
+- egui 0.35 / eframe 0.35 API migration
+
+### Documentation
+- `docs/deploy-proxy.md`: Vultr/Oracle quickstart, systemd service, multi-node mesh
+
+### Housekeeping
+- 77→0 clippy warnings (crate-level allows for planned API surface)
+- 5 stale dependabot PRs closed
+- 197→200 tests
+
