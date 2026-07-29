@@ -98,6 +98,10 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub write_config: bool,
 
+    /// Run environment checks (nftables/iptables, proxy, game detection).
+    /// Exits 0 if all pass, 1 otherwise.
+    #[arg(long, default_value_t = false)]
+    pub check: bool,
 
     /// Enable pcap capture mode (alternative to redirect mode).
     /// Captures game packets directly from the network interface.
@@ -192,6 +196,7 @@ mod tests {
         assert!(!cli.list_interfaces);
         assert!(!cli.list_games);
         assert!(!cli.write_config);
+        assert!(!cli.check);
         assert!(!cli.capture);
         assert!(!cli.intercept);
         assert!(!cli.start_interceptor);
@@ -241,6 +246,7 @@ mod tests {
             "--list-interfaces",
             "--list-games",
             "--write-config",
+            "--check",
             "--capture",
             "--intercept",
             "--start-interceptor",
@@ -261,6 +267,7 @@ mod tests {
         assert!(cli.list_interfaces);
         assert!(cli.list_games);
         assert!(cli.write_config);
+        assert!(cli.check);
         assert!(cli.capture);
         assert!(cli.intercept);
         assert!(cli.start_interceptor);

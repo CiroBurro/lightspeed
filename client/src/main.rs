@@ -208,6 +208,99 @@ data_port = 4434
         return Ok(());
     }
 
+    // ── --check ──────────────────────────────────────────────────
+    if cli.check {
+        info!("🔍 LightSpeed environment check");
+        let mut all_ok = true;
+
+        // 1. Interceptor availability
+        let interceptor = interceptor::create_interceptor();
+        let platform = interceptor.platform_name();
+        match interceptor.check_availability() {
+            Ok(()) => info!("   ✅ Interceptor backend: {} — available", platform),
+            Err(e) => {
+                warn!("   ❌ Interceptor backend: {} — {}", platform, e);
+                all_ok = false;
+            }
+        }
+
+        // 2. Root / admin check
+        #[cfg(target_os = "linux")]
+        {
+            let is_root = std::process::Command::new("id")
+                .args(["-u"])
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().ok())
+                .map(|uid| uid == 0)
+                .unwrap_or(false);
+            if is_root {
+                info!("   ✅ Running as root");
+            } else {
+                warn!("   ⚠️  Not running as root — interceptor needs sudo");
+            }
+        }
+
+        // 3. Game detection
+        if let Some(ref game_name) = cli.game {
+            match games::detect_game(game_name) {
+                Ok(game) => {
+                    let procs = game.process_names();
+                    let found = crate::interceptor::process_scanner::find_game_process(procs);
+                    match found {
+                        Some(p) => info!("   ✅ Game '{}' detected: PID {} with {} routes", game.name(), p.pid, p.routes.len()),
+                        None => info!("   ⚠️  Game '{}' not running — port-range fallback will be used", game.name()),
+                    }
+                }
+                Err(_) => {
+                    warn!("   ❌ Unknown game '{}'", game_name);
+                    all_ok = false;
+                }
+            }
+        } else {
+            info!("   ℹ️  No --game specified — skipping game detection");
+        }
+
+        // 4. Proxy reachability (quick UDP probe)
+        if let Some(ref proxy_str) = cli.proxy {
+            let proxy_addr = match parse_proxy_addr(proxy_str) {
+                Ok(a) => a,
+                Err(e) => {
+                    warn!("   ❌ Invalid proxy address '{}': {}", proxy_str, e);
+                    all_ok = false;
+                    return if all_ok { Ok(()) } else { Err(anyhow::anyhow!("Some checks failed")) };
+                }
+            };
+            // Quick connectivity check — send a keepalive and wait briefly
+            match std::net::UdpSocket::bind("0.0.0.0:0") {
+                Ok(sock) => {
+                    sock.set_read_timeout(Some(std::time::Duration::from_millis(500))).ok();
+                    let hdr = lightspeed_protocol::TunnelHeader::keepalive(0, 0);
+                    if sock.send_to(&hdr.encode_to_array(), proxy_addr).is_ok() {
+                        info!("   ✅ Proxy {} — UDP reachable", proxy_addr);
+                    } else {
+                        warn!("   ❌ Proxy {} — send failed", proxy_addr);
+                        all_ok = false;
+                    }
+                }
+                Err(e) => {
+                    warn!("   ❌ Cannot bind local socket: {}", e);
+                    all_ok = false;
+                }
+            }
+        } else {
+            info!("   ℹ️  No --proxy specified — skipping proxy check");
+        }
+
+        if all_ok {
+            info!("✅ All checks passed");
+        } else {
+            warn!("❌ Some checks failed — see above");
+            return Err(anyhow::anyhow!("Some checks failed"));
+        }
+        return Ok(());
+    }
+
     // ── --scan-processes ──────────────────────────────────────────
     if cli.scan_processes {
         info!("🔍 Scanning for game processes...");
