@@ -164,6 +164,28 @@ impl TrafficInterceptor for NftablesInterceptor {
             });
         }
 
+        // ── Stats logging task ────────────────────────────────────────
+        {
+            let counters_s = Arc::clone(&counters);
+            let running_s = Arc::clone(&running);
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(10));
+                // Skip first tick (stats are all zero)
+                interval.tick().await;
+                while running_s.load(Ordering::Relaxed) {
+                    interval.tick().await;
+                    let snap = counters_s.snapshot("nftables");
+                    tracing::info!(
+                        "📊 Interceptor: {} pkts out / {} pkts in / {} injected / {} errors",
+                        snap.packets_intercepted,
+                        snap.packets_from_proxy,
+                        snap.packets_injected,
+                        snap.errors,
+                    );
+                }
+            });
+        }
+
         // ── Main async loop ───────────────────────────────────────────────
         let counters_loop = Arc::clone(&counters);
         let running_loop = Arc::clone(&running);
