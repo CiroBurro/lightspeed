@@ -123,3 +123,18 @@
 - Live validation: ProcessScanner works, nftables backend available, game config resolution works
 - 185 tests, 0 failures; clippy 0 errors
 **Alternatives Considered:** Downgrading linfa back to 0.7.1 — rejected because future linfa versions will diverge further; upgrading to match is the sustainable path.
+
+### 2026-07-29: WF-012 — Live Interceptor Mode & Dependabot Triage
+
+**Agent:** RustDev + QAEngineer
+**Status:** Accepted
+**Rationale:** With WF-011 diagnostic tooling validated, the next logical step was to enable live MITM via the interceptor framework. Additionally, four stale dependabot branches needed triage. All four bumps proved safe and were consolidated into a single commit, superseding the outdated branches (which were based on pre-fix Cargo.toml and would have reverted the linfa fix).
+**Impact:**
+- `Cargo.toml` + `client/Cargo.toml` + `proxy/Cargo.toml`: bytes 1.12, tracing-subscriber 0.3.23, rand 0.9, thiserror 2
+- `client/src/ml/data.rs`: 12× `gen_range` → `random_range` (rand 0.9 API change)
+- `client/src/modes/intercept_mode.rs`: New live MITM runner — resolves game, discovers routes, creates/starts interceptor, handles Ctrl+C shutdown
+- `client/src/cli.rs`: Added `--start-interceptor` and `--server-addr` flags
+- `client/src/main.rs`: Dispatch for `--start-interceptor` with server address override
+- Live validation: Full pipeline works (route discovery → interceptor start → nftables attempt) — correctly fails on "Operation not permitted" without root
+- 185 tests, 0 failures; clippy 0 errors
+**Alternatives Considered:** Using the Engine's `start_interceptor()` method — rejected because the Engine is designed for GUI integration (eframe/Tokio runtime coupling). Direct interceptor usage from the CLI is simpler and avoids the GUI dependency.

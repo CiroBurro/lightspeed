@@ -35,6 +35,7 @@ use modes::{
     keepalive::run_keepalive_mode,
     live_test::run_live_test,
     proxy_probe::{probe_all_proxies, select_best_proxy},
+    intercept_mode::run_intercept_mode,
     tunnel_test::run_tunnel_test,
 };
 use route::ProxyHealth;
@@ -226,6 +227,22 @@ async fn main() -> anyhow::Result<()> {
         }
         
         return Ok(());
+    }
+
+    // ── --start-interceptor ────────────────────────────────────────
+    if cli.start_interceptor {
+        let game_key = cli.game.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("--start-interceptor requires --game <name>")
+        })?;
+        let proxy_str = cli.proxy.as_deref().unwrap_or("127.0.0.1:4434");
+        let proxy_addr = parse_proxy_addr(proxy_str)?;
+        
+        info!("🚀 Starting live interceptor mode");
+        let server_override = match cli.server_addr.as_deref() {
+            Some(s) => Some(parse_proxy_addr(s)?),
+            None => None,
+        };
+        return run_intercept_mode(game_key, proxy_addr, cli.fec, cli.fec_k, server_override).await;
     }
 
     // ── Game detection ────────────────────────────────────────────

@@ -10,3 +10,5 @@ pub mod live_test;
 pub mod proxy_probe;
 pub mod redirect_windivert;
 pub mod tunnel_test;
+
+pub mod intercept_mode;

@@ -109,6 +109,21 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub intercept: bool,
 
+    /// Start the OOP TrafficInterceptor in live MITM mode.
+    /// Requires --game and --proxy. Installs kernel-level redirect rules
+    /// (nftables/iptables/pfctl/WinDivert) and tunnels game traffic.
+    /// Press Ctrl+C to stop and clean up firewall rules.
+    /// Requires elevated privileges: root on Linux/macOS, Admin on Windows.
+    #[arg(long, default_value_t = false)]
+    pub start_interceptor: bool,
+
+    /// Override the game server address for interceptor mode.
+    /// Useful for testing when the game is not running.
+    /// Format: ip:port (e.g., 1.2.3.4:28015)
+    #[arg(long)]
+    pub server_addr: Option<String>,
+
+
     /// Scan for game processes and display their UDP routes, then exit.
     /// Useful for debugging game detection before starting the interceptor.
     #[arg(long, default_value_t = false)]
@@ -169,6 +184,7 @@ mod tests {
         assert!(!cli.list_interfaces);
         assert!(!cli.capture);
         assert!(!cli.intercept);
+        assert!(!cli.start_interceptor);
         assert!(!cli.scan_processes);
         assert!(!cli.telemetry);
         assert!(!cli.no_telemetry);
@@ -215,6 +231,7 @@ mod tests {
             "--list-interfaces",
             "--capture",
             "--intercept",
+            "--start-interceptor",
             "--scan-processes",
             "--telemetry",
             "--no-telemetry",
@@ -232,6 +249,7 @@ mod tests {
         assert!(cli.list_interfaces);
         assert!(cli.capture);
         assert!(cli.intercept);
+        assert!(cli.start_interceptor);
         assert!(cli.scan_processes);
         assert!(cli.telemetry);
         assert!(cli.no_telemetry);
