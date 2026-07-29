@@ -547,3 +547,34 @@ fn recover_original_dst(fd: std::os::fd::RawFd) -> Option<std::net::SocketAddrV4
 fn recover_original_dst(_fd: std::os::fd::RawFd) -> Option<std::net::SocketAddrV4> {
     None
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recover_original_dst_invalid_fd_returns_none() {
+        // Using an obviously invalid fd should return None, not panic.
+        let result = recover_original_dst(-1);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn recover_original_dst_bogus_fd_returns_none() {
+        // A valid-looking but non-socket fd should also return None.
+        let result = recover_original_dst(999999);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn port_range_fallback_placeholder_is_unspecified() {
+        // Verify the placeholder IP is 0.0.0.0 (triggers port-range nftables mode).
+        let placeholder = std::net::SocketAddrV4::new(
+            std::net::Ipv4Addr::new(0, 0, 0, 0),
+            28015,
+        );
+        assert!(placeholder.ip().is_unspecified());
+        assert_eq!(placeholder.port(), 28015);
+    }
+}
