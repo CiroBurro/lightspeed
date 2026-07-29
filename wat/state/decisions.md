@@ -138,3 +138,27 @@
 - Live validation: Full pipeline works (route discovery → interceptor start → nftables attempt) — correctly fails on "Operation not permitted" without root
 - 185 tests, 0 failures; clippy 0 errors
 **Alternatives Considered:** Using the Engine's `start_interceptor()` method — rejected because the Engine is designed for GUI integration (eframe/Tokio runtime coupling). Direct interceptor usage from the CLI is simpler and avoids the GUI dependency.
+
+### 2026-07-29: WF-013 — MockInterceptor & CI Testability
+
+**Agent:** RustDev + QAEngineer
+**Status:** Accepted
+**Rationale:** The interceptor pipeline needed automated test coverage. Previously, testing the interceptor required root + kernel modules (nftables) or Windows + Administrator (WinDivert). A MockInterceptor implementing the full `TrafficInterceptor` trait enables CI tests of the interceptor lifecycle without elevated privileges. The mock uses `std::thread::spawn` + `blocking_recv()` to avoid requiring a Tokio runtime in unit tests.
+**Impact:**
+- `client/src/interceptor/mock.rs`: 118 LoC MockInterceptor with 7 unit tests
+- `client/src/interceptor/mod.rs`: 5 new integration tests exercising the full pipeline
+- Test count: 185 → 197
+**Alternatives Considered:** Using `#[tokio::test]` for mock tests — rejected because it adds a heavy dependency on the Tokio runtime for simple unit tests. Using `std::thread::spawn` with `blocking_recv()` keeps the mock runtime-agnostic.
+
+### 2026-07-29: PR #20 Review — Cross-Platform GUI
+
+**Agent:** RustDev (reviewing)
+**Status:** Reviewed — recommended for merge
+**Rationale:** CiroBurro's cross-platform GUI refactor is a clean contribution that:
+- Extracts OS-specific code behind a `Platform` trait (Linux stub + Windows full)
+- Fixes two crashes (hardcoded log path, placeholder IP panic)
+- Adds runtime proxy manager UI
+- Migrates to egui 0.35 API
+Compiles cleanly on Linux (`cargo check -p lightspeed-gui`), merges without conflicts against current master.
+**Impact:** Makes `lightspeed-gui` buildable and runnable on Linux (previously Windows-only). The proxy manager removes the need for environment variable restarts.
+**Alternatives Considered:** Requesting changes to add persistent proxy storage — deferred to a follow-up PR (contributor explicitly noted "Persistence is intentionally omitted").
