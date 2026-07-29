@@ -93,6 +93,12 @@ impl TrafficInterceptor for NftablesInterceptor {
         let listener_std = std::net::UdpSocket::bind("127.0.0.1:0")
             .map_err(|e| anyhow::anyhow!("Listener bind failed: {e}"))?;
         let local_port = listener_std.local_addr()?.port();
+
+        // Save raw fd for SO_ORIGINAL_DST recovery (needed in port-range mode).
+        let listener_fd = {
+            use std::os::fd::AsRawFd;
+            listener_std.as_raw_fd()
+        };
         tracing::info!(
             "Linux interceptor: redirecting {} → localhost:{}",
             server_addr,
@@ -209,6 +215,15 @@ impl TrafficInterceptor for NftablesInterceptor {
                         }
                         game_src = Some(src);
 
+                        // Recover original destination from redirected packet.
+                        // When the nftables REDIRECT rule fires, the kernel preserves
+                        // the original destination — we retrieve it via SO_ORIGINAL_DST.
+                        let actual_dst = if server_addr.ip().is_unspecified() {
+                            recover_original_dst(listener_fd).unwrap_or(server_addr)
+                        } else {
+                            server_addr
+                        };
+
                         counters_loop.packets_intercepted.fetch_add(1, Ordering::Relaxed);
                         counters_loop.bytes_intercepted.fetch_add(len as u64, Ordering::Relaxed);
 
@@ -218,11 +233,11 @@ impl TrafficInterceptor for NftablesInterceptor {
                             .unwrap_or_default()
                             .as_micros() as u32;
 
-                        // Forward to proxy with TunnelHeader(src=game_src, dst=server_addr)
+                        // Forward to proxy with TunnelHeader(src=game_src, dst=actual_dst)
                         if let Some(ref mut enc) = fec_encoder {
                             let block_id = enc.block_id();
                             let index = enc.current_index();
-                            let hdr = lightspeed_protocol::TunnelHeader::new_fec(seq, ts, src, server_addr);
+                            let hdr = lightspeed_protocol::TunnelHeader::new_fec(seq, ts, src, actual_dst);
                             let fh = FecHeader::data(block_id, index, fec_k);
                             let mut buf = BytesMut::with_capacity(HEADER_SIZE + FEC_HEADER_SIZE + len);
                             buf.extend_from_slice(&hdr.encode_to_array());
@@ -232,7 +247,7 @@ impl TrafficInterceptor for NftablesInterceptor {
                             let _ = tunnel_socket.send_to(&buf, proxy_addr).await;
                             if let Some(pb) = parity {
                                 let ps = seq.wrapping_add(1);
-                                let ph = lightspeed_protocol::TunnelHeader::new_fec(ps, ts, src, server_addr);
+                                let ph = lightspeed_protocol::TunnelHeader::new_fec(ps, ts, src, actual_dst);
                                 let pf = FecHeader::parity(block_id, fec_k);
                                 let mut pb2 = BytesMut::with_capacity(HEADER_SIZE + FEC_HEADER_SIZE + pb.len());
                                 pb2.extend_from_slice(&ph.encode_to_array());
@@ -242,7 +257,7 @@ impl TrafficInterceptor for NftablesInterceptor {
                                 seq = seq.wrapping_add(1);
                             }
                         } else {
-                            let hdr = lightspeed_protocol::TunnelHeader::new(seq, ts, src, server_addr);
+                            let hdr = lightspeed_protocol::TunnelHeader::new(seq, ts, src, actual_dst);
                             let pkt = hdr.encode_with_payload(payload);
                             let _ = tunnel_socket.send_to(&pkt, proxy_addr).await;
                         }
@@ -485,4 +500,50 @@ fn which(cmd: &str) -> Option<std::path::PathBuf> {
             .map(|dir| dir.join(cmd))
             .find(|p| p.is_file())
     })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SO_ORIGINAL_DST recovery
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Linux netfilter REDIRECT preserves the original destination address.
+/// We retrieve it via `getsockopt(fd, SOL_IP, SO_ORIGINAL_DST, ...)`.
+///
+/// This is needed in port-range mode where the nftables rule matches by port
+/// range instead of a specific server IP. Without this, we'd only know the
+/// game client's source address — not where it was trying to send packets.
+#[cfg(target_os = "linux")]
+fn recover_original_dst(fd: std::os::fd::RawFd) -> Option<std::net::SocketAddrV4> {
+    // These constants are stable on Linux:
+    //   SOL_IP = 0
+    //   SO_ORIGINAL_DST = 80
+    const SOL_IP: libc::c_int = 0;
+    const SO_ORIGINAL_DST: libc::c_int = 80;
+
+    let mut sockaddr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+    let mut socklen = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
+
+    let ret = unsafe {
+        libc::getsockopt(
+            fd,
+            SOL_IP,
+            SO_ORIGINAL_DST,
+            &mut sockaddr as *mut _ as *mut libc::c_void,
+            &mut socklen,
+        )
+    };
+
+    if ret != 0 {
+        return None;
+    }
+
+    // sockaddr_in fields are in network byte order.
+    let ip = std::net::Ipv4Addr::from(u32::from_be(sockaddr.sin_addr.s_addr));
+    let port = u16::from_be(sockaddr.sin_port);
+    Some(std::net::SocketAddrV4::new(ip, port))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn recover_original_dst(_fd: std::os::fd::RawFd) -> Option<std::net::SocketAddrV4> {
+    None
 }

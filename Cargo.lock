@@ -2555,6 +2555,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "libc",
  "lightspeed-protocol",
  "linfa",
  "linfa-linear",
