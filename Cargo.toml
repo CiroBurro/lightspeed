@@ -20,7 +20,7 @@ description = "Zero-cost global network optimizer — reduce and stabilize ping 
 tokio = { version = "1", features = ["full"] }
 
 # Networking
-bytes = "1"
+bytes = "1.12"
 
 # Serialization / Config
 serde = { version = "1", features = ["derive"] }
@@ -32,11 +32,11 @@ clap = { version = "4", features = ["derive"] }
 
 # Logging / Tracing
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 
 # Error handling
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 
 # Internal crates
 lightspeed-protocol = { path = "protocol" }

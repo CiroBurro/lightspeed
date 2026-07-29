@@ -125,8 +125,8 @@ pub fn generate_synthetic_data(config: &SyntheticConfig) -> Vec<TrainingSample> 
 
 fn generate_sample(rng: &mut impl Rng, profile: &RegionProfile) -> TrainingSample {
     // Time context
-    let time_of_day: u8 = rng.gen_range(0..24);
-    let day_of_week: u8 = rng.gen_range(0..7);
+    let time_of_day: u8 = rng.random_range(0..24);
+    let day_of_week: u8 = rng.random_range(0..7);
 
     // Peak hour factor: higher latency during evening gaming hours (18-23)
     let peak_factor = if (18..=23).contains(&time_of_day) {
@@ -141,7 +141,7 @@ fn generate_sample(rng: &mut impl Rng, profile: &RegionProfile) -> TrainingSampl
     let weekend_factor = if day_of_week >= 5 { 1.1 } else { 1.0 };
 
     // Proxy load (0.0 - 1.0), higher during peak
-    let base_load: f64 = rng.gen_range(0.05..0.4);
+    let base_load: f64 = rng.random_range(0.05..0.4);
     let proxy_load = (base_load * peak_factor * weekend_factor).min(0.95);
 
     // Load-dependent latency increase
@@ -154,19 +154,19 @@ fn generate_sample(rng: &mut impl Rng, profile: &RegionProfile) -> TrainingSampl
     };
 
     // Network hops and AS path
-    let hop_count: u32 = rng.gen_range(profile.hop_range.0..=profile.hop_range.1);
-    let bgp_as_path_len: u32 = rng.gen_range(profile.as_path_range.0..=profile.as_path_range.1);
+    let hop_count: u32 = rng.random_range(profile.hop_range.0..=profile.hop_range.1);
+    let bgp_as_path_len: u32 = rng.random_range(profile.as_path_range.0..=profile.as_path_range.1);
 
     // Packet loss (increases with congestion)
     let packet_loss_pct = profile.base_loss_pct * peak_factor
         + if proxy_load > 0.8 {
-            rng.gen_range(0.01..0.05)
+            rng.random_range(0.01..0.05)
         } else {
             0.0
         };
 
     // Current latency: base + noise + peak + load + loss retransmission
-    let noise: f64 = rng.gen_range(-1.0..1.0) * profile.latency_std_ms;
+    let noise: f64 = rng.random_range(-1.0..1.0) * profile.latency_std_ms;
     let loss_retransmission = packet_loss_pct * 100.0; // Each % loss adds ~100ms equivalent
     let current_latency_ms = (profile.base_latency_ms
         + noise
@@ -177,15 +177,15 @@ fn generate_sample(rng: &mut impl Rng, profile: &RegionProfile) -> TrainingSampl
 
     // Jitter: correlates with congestion and loss
     let jitter_ms =
-        (profile.latency_std_ms * 0.5 * peak_factor + rng.gen_range(0.0..3.0) + load_penalty * 0.3)
+        (profile.latency_std_ms * 0.5 * peak_factor + rng.random_range(0.0..3.0) + load_penalty * 0.3)
             .max(0.5);
 
     // Historical stats (smoothed versions of current)
-    let historical_p50_ms = profile.base_latency_ms * 1.1 + rng.gen_range(-2.0..2.0);
-    let historical_p95_ms = profile.base_latency_ms * 1.8 + rng.gen_range(-3.0..5.0);
+    let historical_p50_ms = profile.base_latency_ms * 1.1 + rng.random_range(-2.0..2.0);
+    let historical_p95_ms = profile.base_latency_ms * 1.8 + rng.random_range(-3.0..5.0);
 
     // Geographic distance with small noise
-    let geographic_distance_km = profile.distance_km + rng.gen_range(-50.0..50.0);
+    let geographic_distance_km = profile.distance_km + rng.random_range(-50.0..50.0);
 
     let features = NetworkFeatures {
         current_latency_ms,
@@ -204,7 +204,7 @@ fn generate_sample(rng: &mut impl Rng, profile: &RegionProfile) -> TrainingSampl
     // The "true" latency through this proxy — what we're trying to predict.
     // It's the current latency plus some additional real-world noise.
     let observed_latency_ms =
-        current_latency_ms + rng.gen_range(-2.0..3.0) + jitter_ms * rng.gen_range(0.0..0.5);
+        current_latency_ms + rng.random_range(-2.0..3.0) + jitter_ms * rng.random_range(0.0..0.5);
 
     TrainingSample {
         features,
