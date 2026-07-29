@@ -135,6 +135,79 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // ── --list-games ──────────────────────────────────────────────
+    if cli.list_games {
+        info!("🎮 Supported games:");
+        // Access game registry through the games module
+        let all_games: &[&str] = &[
+            "rust", "fortnite", "cs2", "dota2", "valorant", "apex", "ow2", "lol", "pubg",
+        ];
+        for name in all_games {
+            match games::detect_game(name) {
+                Ok(g) => {
+                    let (lo, hi) = g.ports();
+                    info!("   {:<12} ports {}-{}  — {}", g.name(), lo, hi, g.process_names().join(", "));
+                }
+                Err(_) => {
+                    info!("   {:<12} (unknown)", name);
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // ── --write-config ────────────────────────────────────────────
+    if cli.write_config {
+        let path = "lightspeed.toml";
+        if std::path::Path::new(path).exists() {
+            warn!("{} already exists — not overwriting", path);
+        } else {
+            let default_config = r#"# LightSpeed configuration
+# See docs/user-guide.md for details.
+
+[proxy]
+# Your LightSpeed proxy node addresses (host:port).
+# Get these from your Vultr/Oracle cloud instances.
+# At least one proxy is required.
+servers = [
+    # "YOUR_PROXY_IP:4434",
+]
+
+# Data-plane port (UDP tunnel, shared by all proxy nodes).
+data_port = 4434
+
+# Control-plane port (QUIC, shared by all proxy nodes).
+# control_port = 4433
+
+[general]
+# Default game to optimize.
+# default_game = "rust"
+
+# Route selection strategy: "nearest" or "ml"
+# route_strategy = "nearest"
+
+# Enable Forward Error Correction for packet loss recovery.
+# fec = false
+
+# FEC block size (2-16). Lower = more redundancy.
+# fec_k = 4
+
+# Enable Cloudflare WARP for improved routing.
+# warp = false
+
+[telemetry]
+# Opt-in anonymous telemetry (p50/p95/p99 latency, jitter, FEC stats).
+# No IPs or PII are ever sent. See docs/privacy.md.
+# enabled = false
+"#;
+            std::fs::write(path, default_config)?;
+            info!("📝 Wrote default config to {}", path);
+            info!("   Edit {} to add your proxy addresses, then run:", path);
+            info!("   lightspeed --game rust");
+        }
+        return Ok(());
+    }
+
     // ── --scan-processes ──────────────────────────────────────────
     if cli.scan_processes {
         info!("🔍 Scanning for game processes...");

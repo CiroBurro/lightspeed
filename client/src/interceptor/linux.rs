@@ -73,12 +73,16 @@ impl TrafficInterceptor for NftablesInterceptor {
             .first()
             .filter(|r| super::process_scanner::is_public_ipv4(*r.remote.ip()))
             .map(|r| r.remote)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Linux interceptor requires a pre-discovered server route.\n\
-                 Run ProcessScanner first and wait until the game is connected to a server."
+            .unwrap_or_else(|| {
+                tracing::info!(
+                    "No server route discovered — using port-range fallback ({}-{})",
+                    config.port_range.0, config.port_range.1
+                );
+                std::net::SocketAddrV4::new(
+                    std::net::Ipv4Addr::new(0, 0, 0, 0),
+                    config.port_range.0,
                 )
-            })?;
+            });
 
         let proxy_addr = config.proxy_addr;
         let fec_enabled = config.fec_enabled;
@@ -356,17 +360,31 @@ fn remove_iptables_redirect(server: SocketAddrV4, local_port: u16, tag: &str) {
 
 /// nftables: create a temporary table + chain + rule.
 fn add_nft_redirect(server: SocketAddrV4, local_port: u16, tag: &str) -> anyhow::Result<()> {
-    // Build an nftables script that adds a nat OUTPUT chain rule.
+    // Build an nftables script. If the server address is a placeholder
+    // (0.0.0.0), use a port-range match instead of an exact IP match.
+    let match_clause = if server.ip().is_unspecified() {
+        format!(
+            "udp dport {}-{}",
+            server.port(),
+            server.port().saturating_add(100)
+        )
+    } else {
+        format!(
+            "ip daddr {} udp dport {}",
+            server.ip(),
+            server.port()
+        )
+    };
+
     let script = format!(
         "table ip {tag} {{\n\
          chain output {{\n\
              type nat hook output priority -100;\n\
-             ip daddr {srv_ip} udp dport {srv_port} redirect to :{local_port}\n\
+             {match_clause} redirect to :{local_port}\n\
          }}\n\
          }}\n",
         tag = tag,
-        srv_ip = server.ip(),
-        srv_port = server.port(),
+        match_clause = match_clause,
         local_port = local_port,
     );
     let out = std::process::Command::new("nft")

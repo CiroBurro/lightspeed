@@ -90,6 +90,14 @@ pub struct Cli {
     /// List available network interfaces for packet capture, then exit.
     #[arg(long, default_value_t = false)]
     pub list_interfaces: bool,
+    /// List supported games with their default ports, then exit.
+    #[arg(long, default_value_t = false)]
+    pub list_games: bool,
+
+    /// Write a default lightspeed.toml config file to the current directory.
+    #[arg(long, default_value_t = false)]
+    pub write_config: bool,
+
 
     /// Enable pcap capture mode (alternative to redirect mode).
     /// Captures game packets directly from the network interface.
@@ -182,6 +190,8 @@ mod tests {
         assert!(!cli.probe_proxies);
         assert!(!cli.live_test);
         assert!(!cli.list_interfaces);
+        assert!(!cli.list_games);
+        assert!(!cli.write_config);
         assert!(!cli.capture);
         assert!(!cli.intercept);
         assert!(!cli.start_interceptor);
@@ -229,6 +239,8 @@ mod tests {
             "--probe-proxies",
             "--live-test",
             "--list-interfaces",
+            "--list-games",
+            "--write-config",
             "--capture",
             "--intercept",
             "--start-interceptor",
@@ -247,6 +259,8 @@ mod tests {
         assert!(cli.probe_proxies);
         assert!(cli.live_test);
         assert!(cli.list_interfaces);
+        assert!(cli.list_games);
+        assert!(cli.write_config);
         assert!(cli.capture);
         assert!(cli.intercept);
         assert!(cli.start_interceptor);
