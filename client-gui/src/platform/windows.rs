@@ -23,9 +23,10 @@ const MENU_DISCONNECT: &str = "disconnect";
 const MENU_QUIT: &str = "quit";
 
 /// SAFETY: `TrayIcon` uses `Rc<RefCell<…>>` internally on Windows, which is
-/// not `Send` by default.  However, `WindowsTray` is only ever created and
-/// accessed on the main (egui) thread — the same thread that runs the Windows
-/// message loop — so moving it across threads never happens in practice.
+/// SAFETY: `WindowsTray` is only ever created and accessed on the main
+/// (egui) thread — the same thread that runs the Windows message loop.
+/// It is never sent across threads, so `Rc<RefCell<…>>` internals from
+/// the `tray_icon` crate cannot cause data races in practice.
 unsafe impl Send for WindowsTray {}
 
 /// Windows system-tray icon with a context menu (Show, Connect, Disconnect, Quit).

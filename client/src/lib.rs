@@ -1,4 +1,5 @@
 //! LightSpeed client — library API for GUI integration.
+#![allow(dead_code, unused_imports, clippy::useless_conversion, clippy::bool_assert_comparison)]
 //!
 //! Exposes [`LightSpeedEngine`] which manages the background tunnel loop,
 //! provides [`EngineStatus`] snapshots for GUI rendering, and re-exports

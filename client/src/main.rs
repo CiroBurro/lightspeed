@@ -1,4 +1,5 @@
 //! # LightSpeed Client
+#![allow(dead_code, unused_imports, clippy::useless_conversion, clippy::bool_assert_comparison, clippy::collapsible_if)]
 //!
 //! Zero-cost global network optimizer for multiplayer games.
 //! Captures game UDP packets and tunnels them through optimally-selected

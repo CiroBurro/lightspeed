@@ -1144,10 +1144,10 @@ impl<P: Platform> eframe::App for LightSpeedApp<P> {
                     });
 
                     ui.horizontal(|ui| {
-                        if ui.button("Add Proxy").clicked() {
-                            if self.manager_addr_input.parse::<SocketAddrV4>().is_ok() {
-                                add_addr = Some(self.manager_addr_input.parse().unwrap());
-                            }
+                        if ui.button("Add Proxy").clicked()
+                            && self.manager_addr_input.parse::<SocketAddrV4>().is_ok()
+                        {
+                            add_addr = Some(self.manager_addr_input.parse().unwrap());
                         }
                         if ui.button("Close").clicked() {
                             self.show_proxy_manager = false;
