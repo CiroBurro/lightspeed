@@ -36,6 +36,7 @@
 
 pub mod linux;
 pub mod macos;
+pub mod mock;
 pub mod process_scanner;
 pub mod traits;
 pub mod windows;
@@ -183,6 +184,77 @@ mod tests {
         assert_eq!(cfg.game_name, "Rust");
         assert_eq!(cfg.port_range, (28015, 28017));
         assert!(!cfg.fec_enabled);
+    }
+
+
+
+    // ── Mock interceptor integration tests ─────────────────────────
+
+    #[test]
+    fn mock_create_interceptor_lifecycle() {
+        let interceptor = mock::MockInterceptor::new();
+        assert_eq!(interceptor.platform_name(), "mock");
+        assert!(interceptor.check_availability().is_ok());
+
+        let config = InterceptorConfig {
+            game_name: "Rust".into(),
+            pid: Some(9999),
+            port_range: (28015, 28017),
+            initial_routes: vec![],
+            proxy_addr: "127.0.0.1:4434".parse().unwrap(),
+            fec_enabled: true,
+            fec_k: 4,
+        };
+
+        let mut handle = interceptor.start(config.clone()).unwrap();
+        assert_eq!(interceptor.start_count(), 1);
+
+        let saved = interceptor.last_config().unwrap();
+        assert_eq!(saved.game_name, "Rust");
+        assert_eq!(saved.fec_enabled, true);
+        assert_eq!(saved.fec_k, 4);
+
+        handle.stop();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(interceptor.stop_count(), 1);
+    }
+
+    #[test]
+    fn mock_unavailable_reports_error() {
+        let interceptor = mock::MockInterceptor::unavailable();
+        assert!(interceptor.check_availability().is_err());
+    }
+
+    #[test]
+    fn mock_handle_counters_default_zero() {
+        let interceptor = mock::MockInterceptor::new();
+        let handle = interceptor.start(InterceptorConfig {
+            game_name: "Test".into(),
+            pid: None,
+            port_range: (1, 2),
+            initial_routes: vec![],
+            proxy_addr: "127.0.0.1:4434".parse().unwrap(),
+            fec_enabled: false,
+            fec_k: 4,
+        }).unwrap();
+
+        let snap = handle.snapshot();
+        assert_eq!(snap.packets_intercepted, 0);
+        assert_eq!(snap.packets_from_proxy, 0);
+        assert_eq!(snap.packets_injected, 0);
+        assert_eq!(snap.errors, 0);
+    }
+
+    #[test]
+    fn process_scanner_scan_for_games_empty_input() {
+        let results = process_scanner::scan_for_games(&[]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn process_scanner_find_nonexistent_game() {
+        let result = process_scanner::find_game_process(&["nonexistent_game_xyz_123"]);
+        assert!(result.is_none());
     }
 
     #[test]
