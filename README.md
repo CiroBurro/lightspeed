@@ -114,23 +114,32 @@ cargo build --release
 You need a proxy node to connect to. Either [run your own](#running-the-proxy-server) on any Linux VPS, or join the community to find nodes near you.
 
 ```bash
-# Redirect mode — recommended for game integration
-lightspeed --game fortnite --redirect --proxy YOUR_PROXY_IP:4434
+# Check your environment (interceptor, root, game, proxy reachability)
+lightspeed --check --game rust --proxy YOUR_PROXY_IP:4434
 
-# With FEC enabled (recovers packet loss)
-lightspeed --game fortnite --redirect --proxy YOUR_PROXY_IP:4434 --fec
+# List supported games
+lightspeed --list-games
 
-# With WARP optimization (install Cloudflare WARP first)
-lightspeed --game cs2 --redirect --proxy YOUR_PROXY_IP:4434 --warp
+# Generate a default config
+lightspeed --write-config
 
-# Test tunnel connectivity
-lightspeed --game fortnite --proxy YOUR_PROXY_IP:4434 --test
+# Diagnostic: show interceptor backend and discover game routes
+lightspeed --intercept --game rust
 
-# Verbose logging
-lightspeed --game dota2 --verbose
+# Live interceptor mode (Linux — needs sudo for nftables)
+sudo lightspeed --start-interceptor --game rust --proxy YOUR_PROXY_IP:4434
 
-# Collect and report session telemetry
-lightspeed --game fortnite --proxy YOUR_PROXY_IP:4434 --telemetry
+# Live interceptor with FEC enabled
+sudo lightspeed --start-interceptor --game cs2 --proxy YOUR_PROXY_IP:4434 --fec
+
+# Scan for game processes and show UDP routes
+lightspeed --scan-processes
+
+# Test proxy connectivity
+lightspeed --test-tunnel --proxy YOUR_PROXY_IP:4434
+
+# Probe all configured proxies and show latencies
+lightspeed --probe-proxies
 ```
 
 ### Running the Proxy Server
