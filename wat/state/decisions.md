@@ -109,3 +109,17 @@
 - **L-6 PR Template:** Added `.github/PULL_REQUEST_TEMPLATE.md` with type labels, checklist, and testing section.
 - **L-7 CODEOWNERS:** Added `.github/CODEOWNERS` with default ownership assignments.
 **Alternatives Considered:** Making `InterceptorCounters::snapshot()` async for M-5 — rejected because it would break the GUI thread call site.
+
+### 2026-07-29: Post-Hiatus Environment Validation & WF-011
+
+**Agent:** RustDev + QAEngineer
+**Status:** Accepted
+**Rationale:** After a 2-month hiatus, the project needed environment validation and progression. `cargo check` revealed that dependabot PR #14 (linfa 0.7→0.8 bump) had broken the ML compilation due to missing `linfa-linear` and `ndarray` version bumps. Additionally, `criterion::black_box` was deprecated in favor of `std::hint::black_box`. WF-011 was defined to add Linux interceptor CLI diagnostic tooling and validate the full toolchain.
+**Impact:**
+- `client/Cargo.toml`: `linfa-linear` 0.7→0.8, `ndarray` 0.15→0.16
+- All bench files: `criterion::black_box` → `std::hint::black_box`
+- `client/src/cli.rs`: Added `--intercept` and `--scan-processes` flags
+- `client/src/main.rs`: Added dispatch logic for both flags; added `mod interceptor` to binary root
+- Live validation: ProcessScanner works, nftables backend available, game config resolution works
+- 185 tests, 0 failures; clippy 0 errors
+**Alternatives Considered:** Downgrading linfa back to 0.7.1 — rejected because future linfa versions will diverge further; upgrading to match is the sustainable path.

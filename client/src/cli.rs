@@ -102,6 +102,18 @@ pub struct Cli {
     #[arg(long)]
     pub interface: Option<String>,
 
+    /// Run the OOP TrafficInterceptor in test mode.
+    /// Discovers the game process via ProcessScanner and reports the
+    /// available interceptor backend, discovered routes, and availability.
+    /// Does not start the interceptor (use --game + redirect mode for that).
+    #[arg(long, default_value_t = false)]
+    pub intercept: bool,
+
+    /// Scan for game processes and display their UDP routes, then exit.
+    /// Useful for debugging game detection before starting the interceptor.
+    #[arg(long, default_value_t = false)]
+    pub scan_processes: bool,
+
     /// Enable opt-in anonymous telemetry.
     /// Sends aggregated latency stats (p50/p95/p99, jitter, FEC) to the proxy
     /// every 15 min. No IP address or PII is ever sent. See docs/privacy.md.
@@ -156,6 +168,8 @@ mod tests {
         assert!(!cli.live_test);
         assert!(!cli.list_interfaces);
         assert!(!cli.capture);
+        assert!(!cli.intercept);
+        assert!(!cli.scan_processes);
         assert!(!cli.telemetry);
         assert!(!cli.no_telemetry);
         assert!(cli.game.is_none());
@@ -200,6 +214,8 @@ mod tests {
             "--live-test",
             "--list-interfaces",
             "--capture",
+            "--intercept",
+            "--scan-processes",
             "--telemetry",
             "--no-telemetry",
         ])
@@ -215,6 +231,8 @@ mod tests {
         assert!(cli.live_test);
         assert!(cli.list_interfaces);
         assert!(cli.capture);
+        assert!(cli.intercept);
+        assert!(cli.scan_processes);
         assert!(cli.telemetry);
         assert!(cli.no_telemetry);
     }

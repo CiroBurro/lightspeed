@@ -9,6 +9,7 @@ mod cli;
 mod config;
 mod error;
 mod games;
+mod interceptor;
 mod ml;
 mod modes;
 mod quic;
@@ -23,7 +24,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::Arc;
 
 use clap::Parser;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use telemetry::TelemetryCollector;
 
@@ -129,6 +130,101 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
         }
+        return Ok(());
+    }
+
+    // ── --scan-processes ──────────────────────────────────────────
+    if cli.scan_processes {
+        info!("🔍 Scanning for game processes...");
+        use interceptor::process_scanner;
+        let game_names: Vec<String> = if let Some(ref g) = cli.game {
+            match games::detect_game(g) {
+                Ok(boxed) => boxed.process_names().iter().map(|s| s.to_string()).collect(),
+                Err(e) => {
+                    error!("Unknown game: {}", e);
+                    return Err(e.into());
+                }
+            }
+        } else {
+            // Scan for all known games
+            vec![
+                "RustClient.exe".into(), "FortniteClient-Win64-Shipping.exe".into(),
+                "cs2.exe".into(), "dota2.exe".into(), "r5apex.exe".into(),
+                "VALORANT-Win64-Shipping.exe".into(),
+            ]
+        };
+        let game_name_refs: Vec<&str> = game_names.iter().map(|s| s.as_str()).collect();
+        let results = process_scanner::scan_for_games(&game_name_refs);
+        if results.is_empty() {
+            info!("   No matching game processes found.");
+        } else {
+            for p in &results {
+                info!("   PID {} ({}) — {} routes:", p.pid, p.name, p.routes.len());
+                for r in &p.routes {
+                    info!("      {} → {}", r.local, r.remote);
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // ── --intercept ───────────────────────────────────────────────
+    if cli.intercept {
+        info!("🧪 Interceptor diagnostic mode");
+        let interceptor = interceptor::create_interceptor();
+        info!("   Platform: {}", interceptor.platform_name());
+        
+        match interceptor.check_availability() {
+            Ok(()) => info!("   Availability: ✅ Ready"),
+            Err(e) => {
+                warn!("   Availability: ❌ {}", e);
+                return Ok(());
+            }
+        }
+        
+        // If game specified, try to build config and show routes
+        if let Some(ref game_name) = cli.game {
+            match games::detect_game(game_name) {
+                Ok(game) => {
+                    let proxy = cli.proxy.as_deref().unwrap_or("127.0.0.1:4434");
+                    let proxy_addr = match parse_proxy_addr(proxy) {
+                        Ok(a) => a,
+                        Err(e) => {
+                            warn!("   Invalid proxy address '{}': {}", proxy, e);
+                            return Err(e.into());
+                        }
+                    };
+                    
+                    let config_opt = interceptor::build_config_for_game(
+                        game.as_ref(), proxy_addr, cli.fec, cli.fec_k
+                    );
+                    
+                    match config_opt {
+                        Some(cfg) => {
+                            info!("   Game: {}", cfg.game_name);
+                            info!("   PID: {:?}", cfg.pid);
+                            info!("   Port range: {}-{}", cfg.port_range.0, cfg.port_range.1);
+                            info!("   Routes discovered: {}", cfg.initial_routes.len());
+                            for r in &cfg.initial_routes {
+                                info!("      {} → {}", r.local, r.remote);
+                            }
+                            if cfg.initial_routes.is_empty() {
+                                info!("   (No server routes found — game may need to be connected to a server)");
+                            }
+                        }
+                        None => {
+                            warn!("   Could not build interceptor config — see logs above.");
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("   Unknown game '{}': {}", game_name, e);
+                }
+            }
+        } else {
+            info!("   (specify --game <name> to scan for a specific game's routes)");
+        }
+        
         return Ok(());
     }
 
