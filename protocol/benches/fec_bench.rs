@@ -2,8 +2,9 @@
 ///
 /// Measures XOR parity generation and single-packet recovery throughput
 /// at block sizes K = 2, 4, 8, 16 with realistic game packet sizes.
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use lightspeed_protocol::{FecDecoder, FecEncoder, FecHeader};
+use std::hint::black_box;
 
 // Typical game UDP payload sizes to benchmark
 const PAYLOAD_SIZES: &[usize] = &[64, 256, 512, 1024];

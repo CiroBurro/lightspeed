@@ -2,9 +2,10 @@
 ///
 /// Measures the throughput of the hot-path header operations that every
 /// tunnel packet passes through on both the client and proxy sides.
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use lightspeed_protocol::TunnelHeader;
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::hint::black_box;
 
 fn bench_header_encode(c: &mut Criterion) {
     let src = SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 100), 12345);

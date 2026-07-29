@@ -8,9 +8,10 @@
 ///
 /// We isolate these steps so we know exactly where cycles are spent.
 use bytes::{Bytes, BytesMut};
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use lightspeed_protocol::{FecEncoder, FecHeader, TunnelHeader, FEC_HEADER_SIZE, HEADER_SIZE};
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::hint::black_box;
 
 fn make_src() -> SocketAddrV4 {
     SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 100), 12345)
